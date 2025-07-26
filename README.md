@@ -1,3 +1,3 @@
 # EyeBox
 
-You can also download these things from [Printables](https://printables.com)
+Instructions and download these things from [Printables](https://www.printables.com/model/1351835-moving-single-eye)
