@@ -30,7 +30,7 @@ BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]  # 8 boards t
 boards = []
 running = True
 
-midpoint = 322 # The midpoint for the servos
+midpoint = 352 # The midpoint for the servos
 eyeRightExtreme = 80 # Right goes negative
 eyeLeftExtreme = 50
 eyeDownExtreme = 50 # Down is negative

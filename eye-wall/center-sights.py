@@ -23,7 +23,8 @@ from adafruit_pca9685 import PCA9685
 BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]
 
 # Calibration position (per calculations of 499 max and 125 min, it should be 312)
-CALIBRATION_POSITION = 332
+# There's some goof in the plastic piece that will not let us attach it true center, so we offset:
+CALIBRATION_POSITION = 352
 
 def pwm_to_duty_cycle(pwm_value):
     """

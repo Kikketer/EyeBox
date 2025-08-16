@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """
 Adafruit PCA9685 Servo Test Script for Raspberry Pi 5
-Tests multiple PCA9685 boards with all servo channels by setting them to midpoint (185) 
-then randomly moving them between PWM values 150-200 every 3 seconds.
+Tests multiple PCA9685 boards with all servo channels by moving them in a square pattern
+using the same limits as eye-sights.py (extreme positions for left/right and up/down).
 
 Hardware Setup:
 - Board 1: Default address 0x40 (no jumpers)
 - Board 2: Address 0x41 (A0 jumper soldered)
+- Board 3: Address 0x42 (A1 jumper soldered)
+- Board 4: Address 0x43 (A0 + A1 jumpers soldered)
+- Board 5: Address 0x44 (A2 jumper soldered)
+- Board 6: Address 0x45 (A0 + A2 jumpers soldered)
+- Board 7: Address 0x46 (A1 + A2 jumpers soldered)
+- Board 8: Address 0x47 (A0 + A1 + A2 jumpers soldered)
 """
 
 import time
@@ -16,7 +22,14 @@ import busio
 from adafruit_pca9685 import PCA9685
 
 # I2C addresses for multiple boards
-BOARD_ADDRESSES = [0x40, 0x41]  # Add more addresses as needed (0x42, 0x43, etc.)
+BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]  # 8 boards total
+
+# Servo position limits (from eye-sights.py)
+midpoint = 352  # The midpoint for the servos
+eyeRightExtreme = 80  # Right goes negative
+eyeLeftExtreme = 50
+eyeDownExtreme = 50  # Down is negative
+eyeUpExtreme = 30
 
 def main():
     print("Initializing multiple PCA9685 servo boards...")
@@ -41,31 +54,49 @@ def main():
             return
         
         print(f"\nFound {len(boards)} PCA9685 board(s)")
-        print("Setting all servos to midpoint (PWM 185)...")
+        print(f"Setting all servos to midpoint (PWM {midpoint})...")
         
-        # Set all channels on all boards to midpoint (185)
+        # Set all channels on all boards to midpoint
         for board_num, pca in enumerate(boards):
             for channel in range(16):
-                pca.channels[channel].duty_cycle = pwm_to_duty_cycle(185)
-                print(f"Board {board_num+1}, Channel {channel}: PWM 185")
+                pca.channels[channel].duty_cycle = pwm_to_duty_cycle(midpoint)
+                motion_type = "Up/Down" if channel % 2 == 0 else "Left/Right"
+                print(f"Board {board_num+1}, Channel {channel} ({motion_type}): PWM {midpoint}")
         
-        print("\nStarting random movement test...")
+        print("\nStarting square movement test...")
+        print("Moving all servos in square pattern: Left/Up -> Left/Down -> Right/Down -> Right/Up")
         print("Press Ctrl+C to stop\n")
+        
+        # Square movement positions
+        square_positions = [
+            ("Left/Up", midpoint - eyeRightExtreme, midpoint + eyeUpExtreme),
+            ("Left/Down", midpoint - eyeRightExtreme, midpoint - eyeDownExtreme),
+            ("Right/Down", midpoint + eyeLeftExtreme, midpoint - eyeDownExtreme),
+            ("Right/Up", midpoint + eyeLeftExtreme, midpoint + eyeUpExtreme)
+        ]
+        
+        position_index = 0
         
         # Main test loop
         while True:
-            # Wait 3 seconds
-            time.sleep(3)
+            # Get current square position
+            position_name, left_right_pwm, up_down_pwm = square_positions[position_index]
             
-            # Generate random PWM value between 150 and 200
-            random_pwm = random.randint(150, 200)
+            print(f"Moving to {position_name}: Left/Right={left_right_pwm}, Up/Down={up_down_pwm}")
             
-            print(f"Setting all servos on all boards to PWM {random_pwm}")
-            
-            # Set all channels on all boards to the random PWM value
+            # Set all channels on all boards to the square position
             for board_num, pca in enumerate(boards):
                 for channel in range(16):
-                    pca.channels[channel].duty_cycle = pwm_to_duty_cycle(random_pwm)
+                    if channel % 2 == 0:  # Even channels: Up/Down
+                        pca.channels[channel].duty_cycle = pwm_to_duty_cycle(up_down_pwm)
+                    else:  # Odd channels: Left/Right
+                        pca.channels[channel].duty_cycle = pwm_to_duty_cycle(left_right_pwm)
+            
+            # Move to next position in square
+            position_index = (position_index + 1) % 4
+            
+            # Wait 2 seconds before next movement
+            time.sleep(2)
             
     except KeyboardInterrupt:
         print("\nTest stopped by user")
