@@ -30,6 +30,12 @@ BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]  # 8 boards t
 boards = []
 running = True
 
+midpoint = 322 # The midpoint for the servos
+eyeRightExtreme = 80 # Right goes negative
+eyeLeftExtreme = 50
+eyeDownExtreme = 50 # Down is negative
+eyeUpExtreme = 30
+
 class EyeScheduler:
     """
     Manages eye movements with scheduled timing instead of individual threads
@@ -62,8 +68,8 @@ class EyeScheduler:
             left_right_channel = eye_num * 2 + 1
             
             # Generate random PWM values for this eye
-            up_down_pwm = random.randint(150, 200)
-            left_right_pwm = random.randint(150, 200)
+            up_down_pwm = random.randint(midpoint - eyeDownExtreme, midpoint + eyeUpExtreme)
+            left_right_pwm = random.randint(midpoint - eyeRightExtreme, midpoint + eyeLeftExtreme)
             
             # Set the servo positions for this eye
             boards[board_num].channels[up_down_channel].duty_cycle = pwm_to_duty_cycle(up_down_pwm)
