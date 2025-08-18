@@ -18,13 +18,10 @@ import time
 import board
 import busio
 from adafruit_pca9685 import PCA9685
+from consts import consts
 
 # I2C addresses for all 8 boards
 BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]
-
-# Calibration position (per calculations of 499 max and 125 min, it should be 312)
-# There's some goof in the plastic piece that will not let us attach it true center, so we offset:
-CALIBRATION_POSITION = 352
 
 def pwm_to_duty_cycle(pwm_value):
     """
@@ -34,7 +31,7 @@ def pwm_to_duty_cycle(pwm_value):
     return int((pwm_value / 4095.0) * 65535)
 
 def main():
-    print(f"EyeBox Servo Calibration - Setting all servos to position {CALIBRATION_POSITION}")
+    print(f"EyeBox Servo Calibration - Setting all servos to position {consts.midpoint}")
     print("=" * 60)
     
     try:
@@ -57,7 +54,7 @@ def main():
             return
         
         print(f"\nFound {len(boards)} PCA9685 board(s)")
-        print(f"Setting all servos to calibration position: {CALIBRATION_POSITION}")
+        print(f"Setting all servos to calibration position: {consts.midpoint}")
         print("-" * 60)
         
         # Set all channels on all boards to calibration position
@@ -66,15 +63,15 @@ def main():
             print(f"\nBoard {board_num+1} (0x{BOARD_ADDRESSES[board_num]:02X}):")
             for channel in range(16):
                 try:
-                    pca.channels[channel].duty_cycle = pwm_to_duty_cycle(CALIBRATION_POSITION)
-                    print(f"  Channel {channel:2d}: PWM {CALIBRATION_POSITION} ✓")
+                    pca.channels[channel].duty_cycle = pwm_to_duty_cycle(consts.midpoint)
+                    print(f"  Channel {channel:2d}: PWM {consts.midpoint} ✓")
                     total_servos += 1
                     time.sleep(0.05)  # Small delay to prevent overwhelming the boards
                 except Exception as e:
                     print(f"  Channel {channel:2d}: Error - {e} ✗")
         
         print("-" * 60)
-        print(f"Calibration complete! Set {total_servos} servos to position {CALIBRATION_POSITION}")
+        print(f"Calibration complete! Set {total_servos} servos to position {consts.midpoint}")
         print("\nAll servos should now be at their calibration position.")
         print("Verify alignment and press Ctrl+C when done.")
         

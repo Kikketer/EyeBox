@@ -20,16 +20,11 @@ import random
 import board
 import busio
 from adafruit_pca9685 import PCA9685
+from consts import consts
 
 # I2C addresses for multiple boards
 BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]  # 8 boards total
 
-# Servo position limits (from eye-sights.py)
-midpoint = 352  # The midpoint for the servos
-eyeRightExtreme = 80  # Right goes negative
-eyeLeftExtreme = 50
-eyeDownExtreme = 50  # Down is negative
-eyeUpExtreme = 30
 
 def main():
     print("Initializing multiple PCA9685 servo boards...")
@@ -54,14 +49,14 @@ def main():
             return
         
         print(f"\nFound {len(boards)} PCA9685 board(s)")
-        print(f"Setting all servos to midpoint (PWM {midpoint})...")
+        print(f"Setting all servos to midpoint (PWM {consts.midpoint})...")
         
         # Set all channels on all boards to midpoint
         for board_num, pca in enumerate(boards):
             for channel in range(16):
-                pca.channels[channel].duty_cycle = pwm_to_duty_cycle(midpoint)
+                pca.channels[channel].duty_cycle = pwm_to_duty_cycle(consts.midpoint)
                 motion_type = "Up/Down" if channel % 2 == 0 else "Left/Right"
-                print(f"Board {board_num+1}, Channel {channel} ({motion_type}): PWM {midpoint}")
+                print(f"Board {board_num+1}, Channel {channel} ({motion_type}): PWM {consts.midpoint}")
         
         print("\nStarting square movement test...")
         print("Moving all servos in square pattern: Left/Up -> Left/Down -> Right/Down -> Right/Up")
@@ -69,10 +64,10 @@ def main():
         
         # Square movement positions
         square_positions = [
-            ("Left/Up", midpoint - eyeRightExtreme, midpoint + eyeUpExtreme),
-            ("Left/Down", midpoint - eyeRightExtreme, midpoint - eyeDownExtreme),
-            ("Right/Down", midpoint + eyeLeftExtreme, midpoint - eyeDownExtreme),
-            ("Right/Up", midpoint + eyeLeftExtreme, midpoint + eyeUpExtreme)
+            ("Left/Up", consts.midpoint - consts.eyeRightExtreme, consts.midpoint + consts.eyeUpExtreme),
+            ("Left/Down", consts.midpoint - consts.eyeRightExtreme, consts.midpoint - consts.eyeDownExtreme),
+            ("Right/Down", consts.midpoint + consts.eyeLeftExtreme, consts.midpoint - consts.eyeDownExtreme),
+            ("Right/Up", consts.midpoint + consts.eyeLeftExtreme, consts.midpoint + consts.eyeUpExtreme)
         ]
         
         position_index = 0

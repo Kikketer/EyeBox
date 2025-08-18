@@ -22,6 +22,7 @@ import board
 import busio
 import threading
 from adafruit_pca9685 import PCA9685
+from consts import consts
 
 # I2C addresses for multiple boards
 BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]  # 8 boards total
@@ -30,11 +31,6 @@ BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]  # 8 boards t
 boards = []
 running = True
 
-midpoint = 352 # The midpoint for the servos
-eyeRightExtreme = 80 # Right goes negative
-eyeLeftExtreme = 50
-eyeDownExtreme = 50 # Down is negative
-eyeUpExtreme = 30
 
 class EyeScheduler:
     """
@@ -68,8 +64,8 @@ class EyeScheduler:
             left_right_channel = eye_num * 2 + 1
             
             # Generate random PWM values for this eye
-            up_down_pwm = random.randint(midpoint - eyeDownExtreme, midpoint + eyeUpExtreme)
-            left_right_pwm = random.randint(midpoint - eyeRightExtreme, midpoint + eyeLeftExtreme)
+            up_down_pwm = random.randint(consts.midpoint - consts.eyeDownExtreme, consts.midpoint + consts.eyeUpExtreme)
+            left_right_pwm = random.randint(consts.midpoint - consts.eyeRightExtreme, consts.midpoint + consts.eyeLeftExtreme)
             
             # Set the servo positions for this eye
             boards[board_num].channels[up_down_channel].duty_cycle = pwm_to_duty_cycle(up_down_pwm)

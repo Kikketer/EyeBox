@@ -18,18 +18,15 @@ import time
 import board
 import busio
 from adafruit_pca9685 import PCA9685
+from consts import consts
 
 # I2C addresses for all 8 boards
 BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]
 
-# Left and right positions for horizontal movement testing (from eye-sights.py)
-MIDPOINT = 352
-EYE_RIGHT_EXTREME = 80  # Right goes negative from midpoint
-EYE_LEFT_EXTREME = 50   # Left goes positive from midpoint
-
-LEFT_POSITION = MIDPOINT + EYE_LEFT_EXTREME   # 352 + 50 = 402 (leftmost)
-RIGHT_POSITION = MIDPOINT - EYE_RIGHT_EXTREME # 352 - 80 = 272 (rightmost)
-CENTER_POSITION = MIDPOINT # 352 (center position)
+# Left and right positions for horizontal movement testing
+LEFT_POSITION = consts.midpoint + consts.eyeLeftExtreme   # leftmost
+RIGHT_POSITION = consts.midpoint - consts.eyeRightExtreme # rightmost
+CENTER_POSITION = consts.midpoint # center position
 
 def pwm_to_duty_cycle(pwm_value):
     """
@@ -74,8 +71,8 @@ def test_left_right_movement(boards):
                 print(f"  Board {board_num+1} (U/D channels):")
                 for channel in even_channels:
                     try:
-                        pca.channels[channel].duty_cycle = pwm_to_duty_cycle(CENTER_POSITION)
-                        print(f"    Channel {channel:2d} (U/D): PWM {CENTER_POSITION} ✓")
+                        pca.channels[channel].duty_cycle = pwm_to_duty_cycle(consts.midpoint)
+                        print(f"    Channel {channel:2d} (U/D): PWM {consts.midpoint} ✓")
                     except Exception as e:
                         print(f"    Channel {channel:2d} (U/D): Error - {e} ✗")
         
