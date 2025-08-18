@@ -37,14 +37,15 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVOMAX  499 // This is the 'maximum' pulse length count (out of 4096)
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-const int midpoint=((SERVOMAX - SERVOMIN) / 2) + SERVOMIN + 20;
+// const int midpoint=((SERVOMAX - SERVOMIN) / 2) + SERVOMIN;
+const int midpoint = 352;
 
 const uint8_t ledPin = 13;
 
 // Left is positive, right is negative
 const uint8_t leftRightExtreme = 70;
-const uint8_t eyeRightExtreme = 80; // Right goes negative
-const uint8_t eyeLeftExtreme = 50;
+const uint8_t eyeRightExtreme = 95; // Right goes negative
+const uint8_t eyeLeftExtreme = 75;
 const uint8_t eyeDownExtreme = 50; // Down is negative
 const uint8_t eyeUpExtreme = 30;
 
