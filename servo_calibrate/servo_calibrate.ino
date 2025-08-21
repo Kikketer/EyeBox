@@ -43,11 +43,10 @@ const int midpoint = 352;
 const uint8_t ledPin = 13;
 
 // Left is positive, right is negative
-const uint8_t leftRightExtreme = 70;
 const uint8_t eyeRightExtreme = 95; // Right goes negative
-const uint8_t eyeLeftExtreme = 75;
+const uint8_t eyeLeftExtreme = 60;
 const uint8_t eyeDownExtreme = 50; // Down is negative
-const uint8_t eyeUpExtreme = 30;
+const uint8_t eyeUpExtreme = 10;
 
 void setup() {
   Serial.begin(9600);
