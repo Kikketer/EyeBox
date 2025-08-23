@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Left-Right Movement Test for EyeBox - Tests only horizontal movement
-Cycles all servos between left and right positions to validate cord connections.
+Left-Right and Up-Down Movement Test for EyeBox
+Cycles servos through left-right movements, then up-down movements to validate cord connections.
 
 Hardware Setup:
 - Board 1: Default address 0x40 (no jumpers)
@@ -23,9 +23,11 @@ from consts import consts
 # I2C addresses for all 8 boards
 BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]
 
-# Left and right positions for horizontal movement testing
+# Positions for horizontal and vertical movement testing
 LEFT_POSITION = consts.midpoint + consts.eyeLeftExtreme   # leftmost
 RIGHT_POSITION = consts.midpoint - consts.eyeRightExtreme # rightmost
+UP_POSITION = consts.midpoint + consts.eyeUpExtreme       # upmost
+DOWN_POSITION = consts.midpoint - consts.eyeDownExtreme   # downmost
 CENTER_POSITION = consts.midpoint # center position
 
 def pwm_to_duty_cycle(pwm_value):
@@ -64,30 +66,50 @@ def test_left_right_movement(boards):
                 except Exception as e:
                     print(f"    Channel {channel:2d} (L/R): Error - {e} ✗")
             time.sleep(0.05)  # 50ms delay between boards
-        
-        # During CENTER phase, also set even channels (up/down) to center for alignment check
-        if direction == "CENTER":
-            print(f"  Also centering even channels (U/D) for alignment verification:")
-            even_channels = [0, 2, 4, 6, 8, 10, 12, 14]
-            for board_num, pca in enumerate(boards):
-                print(f"  Board {board_num+1} (U/D channels):")
-                for channel in even_channels:
-                    try:
-                        pca.channels[channel].duty_cycle = pwm_to_duty_cycle(consts.midpoint)
-                        print(f"    Channel {channel:2d} (U/D): PWM {consts.midpoint} ✓")
-                        time.sleep(0.01)  # 10ms delay between each servo command
-                    except Exception as e:
-                        print(f"    Channel {channel:2d} (U/D): Error - {e} ✗")
+
+        print(f"All servos moved to {direction} - Hold for 2 seconds")
+        time.sleep(2)
+
+    print("\nLeft-right movement cycle complete!")
+
+def test_up_down_movement(boards):
+    """Test up-down movement for even pins only (up/down channels)"""
+    print("\nStarting up-down movement test...")
+    print("Testing ONLY even pins (0,2,4,6,8,10,12,14) - Up/Down channels")
+    print("Watch up/down servos - they should move up, then down, then center")
+    print("-" * 60)
+
+    # Only test even channels (up/down movement channels)
+    up_down_channels = [0, 2, 4, 6, 8, 10, 12, 14]
+
+    positions = [
+        (UP_POSITION, "UP"),
+        (DOWN_POSITION, "DOWN"),
+        (CENTER_POSITION, "CENTER")
+    ]
+
+    for position, direction in positions:
+        print(f"\nMoving up/down servos to {direction} position ({position})")
+
+        for board_num, pca in enumerate(boards):
+            print(f"  Board {board_num+1}:")
+            for channel in up_down_channels:
+                try:
+                    pca.channels[channel].duty_cycle = pwm_to_duty_cycle(position)
+                    print(f"    Channel {channel:2d} (U/D): PWM {position} ✓")
+                    time.sleep(0.01)  # 10ms delay between each servo command
+                except Exception as e:
+                    print(f"    Channel {channel:2d} (U/D): Error - {e} ✗")
                 time.sleep(0.05)  # 50ms delay between boards
         
         print(f"All servos moved to {direction} - Hold for 2 seconds")
         time.sleep(2)
     
-    print("\nSingle movement cycle complete!")
+    print("\nUp-down movement cycle complete!")
 
 def main():
-    print("EyeBox Left-Right Movement Test")
-    print("Testing horizontal movement to validate cord connections")
+    print("EyeBox Left-Right and Up-Down Movement Test")
+    print("Testing horizontal and vertical movement to validate cord connections")
     print("=" * 60)
     
     try:
@@ -113,24 +135,32 @@ def main():
         print("Press Ctrl+C to stop the test at any time")
         print("-" * 60)
         
-        # Continuous left-right testing
+        # Continuous movement testing (left-right, then up-down)
         cycle_count = 0
         try:
             while True:
                 cycle_count += 1
                 print(f"\n=== Test Cycle {cycle_count} ===")
+
+                # Test left-right movement first
                 test_left_right_movement(boards)
                 
+                print("\nWaiting 2 seconds before up-down test...")
+                time.sleep(2)
+
+                # Test up-down movement second
+                test_up_down_movement(boards)
+
                 print("\nWaiting 3 seconds before next cycle...")
                 time.sleep(3)
                 
         except KeyboardInterrupt:
-            print(f"\nLeft-right test stopped by user after {cycle_count} cycles")
+            print(f"\nMovement test stopped by user after {cycle_count} cycles")
             
     except KeyboardInterrupt:
-        print("\nLeft-right test stopped by user")
+        print("\nMovement test stopped by user")
     except Exception as e:
-        print(f"Error during left-right test: {e}")
+        print(f"Error during movement test: {e}")
     finally:
         # Clean shutdown - turn off all servos
         try:
@@ -142,7 +172,7 @@ def main():
                 print(f"Board {board_num+1} shutdown complete")
         except:
             pass
-        print("Left-right test script terminated.")
+        print("Movement test script terminated.")
 
 if __name__ == "__main__":
     main()
