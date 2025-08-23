@@ -60,8 +60,10 @@ def test_left_right_movement(boards):
                 try:
                     pca.channels[channel].duty_cycle = pwm_to_duty_cycle(position)
                     print(f"    Channel {channel:2d} (L/R): PWM {position} ✓")
+                    time.sleep(0.01)  # 10ms delay between each servo command
                 except Exception as e:
                     print(f"    Channel {channel:2d} (L/R): Error - {e} ✗")
+            time.sleep(0.05)  # 50ms delay between boards
         
         # During CENTER phase, also set even channels (up/down) to center for alignment check
         if direction == "CENTER":
@@ -73,8 +75,10 @@ def test_left_right_movement(boards):
                     try:
                         pca.channels[channel].duty_cycle = pwm_to_duty_cycle(consts.midpoint)
                         print(f"    Channel {channel:2d} (U/D): PWM {consts.midpoint} ✓")
+                        time.sleep(0.01)  # 10ms delay between each servo command
                     except Exception as e:
                         print(f"    Channel {channel:2d} (U/D): Error - {e} ✗")
+                time.sleep(0.05)  # 50ms delay between boards
         
         print(f"All servos moved to {direction} - Hold for 2 seconds")
         time.sleep(2)

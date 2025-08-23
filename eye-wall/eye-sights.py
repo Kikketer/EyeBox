@@ -67,8 +67,9 @@ class EyeScheduler:
             up_down_pwm = random.randint(consts.midpoint - consts.eyeDownExtreme, consts.midpoint + consts.eyeUpExtreme)
             left_right_pwm = random.randint(consts.midpoint - consts.eyeRightExtreme, consts.midpoint + consts.eyeLeftExtreme)
             
-            # Set the servo positions for this eye
+            # Set the servo positions for this eye with small delay between commands
             boards[board_num].channels[up_down_channel].duty_cycle = pwm_to_duty_cycle(up_down_pwm)
+            time.sleep(0.005)  # 5ms delay between up/down and left/right commands
             boards[board_num].channels[left_right_channel].duty_cycle = pwm_to_duty_cycle(left_right_pwm)
             
             print(f"Board {board_num+1}, Eye {eye_num}: Up/Down={up_down_pwm}, Left/Right={left_right_pwm}")

@@ -66,6 +66,7 @@ void setup() {
 }
 
 void loop() {
+  digitalWrite(ledPin, LOW);
   // Just to center the drives (pins 0-3):
   for (int currentPin = 0; currentPin <= 3; currentPin++) {
     pwm.setPWM(currentPin, 0, midpoint);
@@ -80,16 +81,13 @@ void loop() {
   for (int currentPin = 8; currentPin <= 11; currentPin++) {
     pwm.setPWM(currentPin, 0, midpoint - eyeRightExtreme);
   }
-  // Show the light to say that we are at the start of this loop
-  digitalWrite(ledPin, HIGH);
-  delay(5000);
-  digitalWrite(ledPin, LOW);
+  delay(2000);
 
   // Up eye test (pins 12-15):
   for (int currentPin = 12; currentPin <= 15; currentPin++) {
     pwm.setPWM(currentPin, 0, midpoint - eyeDownExtreme);
   }
-  delay(5000);
+  delay(2000);
 
   // Right extreme test (pins 4-7):
   // for (int currentPin = 4; currentPin <= 7; currentPin++) {
@@ -99,11 +97,19 @@ void loop() {
   for (int currentPin = 8; currentPin <= 11; currentPin++) {
     pwm.setPWM(currentPin, 0, midpoint + eyeLeftExtreme);
   }
-  delay(5000);
+  delay(2000);
 
   // Up eye test (pins 12-15):
   for (int currentPin = 12; currentPin <= 15; currentPin++) {
     pwm.setPWM(currentPin, 0, midpoint + eyeUpExtreme);
+  }
+  delay(2000);
+
+  // The light tells us we are centered and can remove
+  digitalWrite(ledPin, HIGH);
+  // now center both the left/right and up/down pins (so you can quick remove them when they are centered)
+  for (int currentPin = 8; currentPin <=15; currentPin++) {
+    pwm.setPWM(currentPin, 0, midpoint);
   }
   delay(5000);
 }
