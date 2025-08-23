@@ -62,14 +62,12 @@ def test_left_right_movement(boards):
                 try:
                     pca.channels[channel].duty_cycle = pwm_to_duty_cycle(position)
                     print(f"    Channel {channel:2d} (L/R): PWM {position} ✓")
-                    time.sleep(0.01)  # 10ms delay between each servo command
                 except Exception as e:
                     print(f"    Channel {channel:2d} (L/R): Error - {e} ✗")
-            time.sleep(0.05)  # 50ms delay between boards
-
+        
         print(f"All servos moved to {direction} - Hold for 2 seconds")
         time.sleep(2)
-
+    
     print("\nLeft-right movement cycle complete!")
 
 def test_up_down_movement(boards):
@@ -78,29 +76,27 @@ def test_up_down_movement(boards):
     print("Testing ONLY even pins (0,2,4,6,8,10,12,14) - Up/Down channels")
     print("Watch up/down servos - they should move up, then down, then center")
     print("-" * 60)
-
+    
     # Only test even channels (up/down movement channels)
     up_down_channels = [0, 2, 4, 6, 8, 10, 12, 14]
-
+    
     positions = [
         (UP_POSITION, "UP"),
-        (DOWN_POSITION, "DOWN"),
+        (DOWN_POSITION, "DOWN"), 
         (CENTER_POSITION, "CENTER")
     ]
-
+    
     for position, direction in positions:
         print(f"\nMoving up/down servos to {direction} position ({position})")
-
+        
         for board_num, pca in enumerate(boards):
             print(f"  Board {board_num+1}:")
             for channel in up_down_channels:
                 try:
                     pca.channels[channel].duty_cycle = pwm_to_duty_cycle(position)
                     print(f"    Channel {channel:2d} (U/D): PWM {position} ✓")
-                    time.sleep(0.01)  # 10ms delay between each servo command
                 except Exception as e:
                     print(f"    Channel {channel:2d} (U/D): Error - {e} ✗")
-                time.sleep(0.05)  # 50ms delay between boards
         
         print(f"All servos moved to {direction} - Hold for 2 seconds")
         time.sleep(2)
@@ -141,16 +137,16 @@ def main():
             while True:
                 cycle_count += 1
                 print(f"\n=== Test Cycle {cycle_count} ===")
-
+                
                 # Test left-right movement first
                 test_left_right_movement(boards)
                 
                 print("\nWaiting 2 seconds before up-down test...")
                 time.sleep(2)
-
+                
                 # Test up-down movement second
                 test_up_down_movement(boards)
-
+                
                 print("\nWaiting 3 seconds before next cycle...")
                 time.sleep(3)
                 
