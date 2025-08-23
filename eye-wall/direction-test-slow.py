@@ -134,21 +134,16 @@ def main():
         print("Press Ctrl+C to stop the test at any time")
         print("-" * 60)
         
-        # Continuous box-by-box testing
-        cycle_count = 0
+        # Cycle all boards and boxes once:
         try:
-            while True:
-                cycle_count += 1
-                print(f"\n=== Test Cycle {cycle_count} ===")
-                
-                # Test all boxes sequentially (one at a time)
-                test_all_boxes_sequentially(boards)
-                
-                print("\nWaiting 3 seconds before next cycle...")
-                time.sleep(3)
+            # Test all boxes sequentially (one at a time)
+            test_all_boxes_sequentially(boards)
+            
+            print("\nWaiting 3 seconds before next cycle...")
+            time.sleep(3)
                 
         except KeyboardInterrupt:
-            print(f"\nMovement test stopped by user after {cycle_count} cycles")
+            print(f"\nMovement test stopped by user")
             
     except KeyboardInterrupt:
         print("\nMovement test stopped by user")
