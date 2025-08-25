@@ -34,18 +34,20 @@ running = True
 
 class EyeScheduler:
     """
-    Manages eye movements with scheduled timing instead of individual threads
+    Manages fast eye movements with 20ms scheduling per eyebox (10ms per servo)
+    Uses timing discovered in i2c-timing-test.py for optimal I2C communication
     """
     def __init__(self):
         self.eye_schedule = {}  # {(board_num, eye_num): next_move_time}
+        self.last_command_time = 0  # Track timing for 10ms delays
         
     def schedule_eye_movement(self, board_num, eye_num):
-        """Schedule the next movement for an eye"""
-        next_move = time.time() + random.uniform(1.0, 5.0)
+        """Schedule the next movement for an eye - every 20ms for maximum speed"""
+        next_move = time.time() + 0.02  # 20ms = 0.02 seconds
         self.eye_schedule[(board_num, eye_num)] = next_move
         
     def move_ready_eyes(self):
-        """Move all eyes that are ready to move"""
+        """Move all eyes that are ready to move with 10ms delays between commands"""
         current_time = time.time()
         eyes_to_move = []
         
@@ -54,11 +56,11 @@ class EyeScheduler:
                 eyes_to_move.append((board_num, eye_num))
         
         for board_num, eye_num in eyes_to_move:
-            self.move_single_eye(board_num, eye_num)
+            self.move_single_eye_with_timing(board_num, eye_num)
             self.schedule_eye_movement(board_num, eye_num)  # Schedule next movement
             
-    def move_single_eye(self, board_num, eye_num):
-        """Move a single eye to random positions"""
+    def move_single_eye_with_timing(self, board_num, eye_num):
+        """Move a single eye to random positions with 10ms delays between servo commands"""
         try:
             up_down_channel = eye_num * 2
             left_right_channel = eye_num * 2 + 1
@@ -67,11 +69,22 @@ class EyeScheduler:
             up_down_pwm = random.randint(consts.midpoint - consts.eyeDownExtreme, consts.midpoint + consts.eyeUpExtreme)
             left_right_pwm = random.randint(consts.midpoint - consts.eyeRightExtreme, consts.midpoint + consts.eyeLeftExtreme)
             
-            # Set the servo positions for this eye
-            boards[board_num].channels[up_down_channel].duty_cycle = pwm_to_duty_cycle(up_down_pwm)
-            boards[board_num].channels[left_right_channel].duty_cycle = pwm_to_duty_cycle(left_right_pwm)
+            # Ensure 10ms delay since last command
+            current_time = time.time()
+            time_since_last = current_time - self.last_command_time
+            if time_since_last < 0.01:  # 10ms = 0.01 seconds
+                time.sleep(0.01 - time_since_last)
             
-            print(f"Board {board_num+1}, Eye {eye_num}: Up/Down={up_down_pwm}, Left/Right={left_right_pwm}")
+            # Set up/down servo position
+            boards[board_num].channels[up_down_channel].duty_cycle = pwm_to_duty_cycle(up_down_pwm)
+            self.last_command_time = time.time()
+            
+            # 10ms delay between servo commands
+            time.sleep(0.01)
+            
+            # Set left/right servo position
+            boards[board_num].channels[left_right_channel].duty_cycle = pwm_to_duty_cycle(left_right_pwm)
+            self.last_command_time = time.time()
             
         except Exception as e:
             print(f"Error moving eye {eye_num} on board {board_num+1}: {e}")
@@ -79,12 +92,13 @@ class EyeScheduler:
 def eye_movement_worker(scheduler):
     """
     Single worker thread that handles all eye movements
+    Optimized for fast movement with minimal delay
     """
     global running
     
     while running:
         scheduler.move_ready_eyes()
-        time.sleep(0.1)  # Check every 100ms for responsive movement
+        time.sleep(0.005)  # Check every 5ms for maximum responsiveness
 
 def main():
     print("Initializing multiple PCA9685 servo boards...")
@@ -119,8 +133,9 @@ def main():
                 motion_type = "Up/Down" if channel % 2 == 0 else "Left/Right"
                 print(f"Board {board_num+1}, Channel {channel} ({motion_type}): PWM 185")
         
-        print("\nStarting optimized eye movement system...")
-        print("Using single-thread scheduler for all 64 eyes with independent timing")
+        print("\nStarting high-speed eye movement system...")
+        print("Using 10ms I2C delays with 20ms eye scheduling for maximum speed")
+        print(f"Managing {len(boards) * 8} eyes with continuous random movement")
         print("Press Ctrl+C to stop\n")
         
         # Create eye scheduler and initialize all eyes

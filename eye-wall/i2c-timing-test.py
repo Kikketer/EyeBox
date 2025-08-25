@@ -18,23 +18,43 @@ def pwm_to_duty_cycle(pwm_value):
     return int((pwm_value / 4095.0) * 65535)
 
 def test_sequential_with_delays(boards, delay_ms=10):
-    """Test sequential servo commands with configurable delays"""
+    """Test sequential servo commands with configurable delays - all eyes look left, then right, then center"""
     print(f"\n=== Sequential Test (delay: {delay_ms}ms) ===")
     
     start_time = time.time()
     commands_sent = 0
     errors = 0
     
-    for board_num, pca in enumerate(boards):
-        for channel in range(16):
-            try:
-                pca.channels[channel].duty_cycle = pwm_to_duty_cycle(consts.midpoint)
-                commands_sent += 1
-                if delay_ms > 0:
-                    time.sleep(delay_ms / 1000.0)
-            except Exception as e:
-                print(f"Error: Board {board_num+1}, Channel {channel}: {e}")
-                errors += 1
+    # Positions to test: left, right, center
+    positions = [
+        ("left", consts.midpoint + consts.eyeLeftExtreme),
+        ("right", consts.midpoint - consts.eyeRightExtreme), 
+        ("center", consts.midpoint)
+    ]
+    
+    for position_name, position_value in positions:
+        print(f"  Moving all eyes {position_name}...")
+        
+        for board_num, pca in enumerate(boards):
+            for channel in range(16):
+                try:
+                    print(f"Board {board_num+1}, Channel {channel}: PWM {position_value}")
+                    # For left/right movement, only update odd channels (1, 3, 5, 7, 9, 11, 13, 15)
+                    # For up/down movement, use even channels with midpoint to keep eyes level
+                    if channel % 2 == 0:  # Even channels (up/down)
+                        pca.channels[channel].duty_cycle = pwm_to_duty_cycle(consts.midpoint)
+                    else:  # Odd channels (left/right)
+                        pca.channels[channel].duty_cycle = pwm_to_duty_cycle(position_value)
+                    
+                    commands_sent += 1
+                    if delay_ms > 0:
+                        time.sleep(delay_ms / 1000.0)
+                except Exception as e:
+                    print(f"Error: Board {board_num+1}, Channel {channel}: {e}")
+                    errors += 1
+        
+        # Pause between position changes to see the movement
+        time.sleep(2.0)
     
     duration = time.time() - start_time
     print(f"Commands: {commands_sent}, Errors: {errors}, Time: {duration:.2f}s")
@@ -125,11 +145,12 @@ def main():
         
         # Test different timing strategies
         strategies = [
-            ("No delays", lambda: test_sequential_with_delays(boards, 0)),
-            ("5ms delays", lambda: test_sequential_with_delays(boards, 5)),
-            ("10ms delays", lambda: test_sequential_with_delays(boards, 10)),
-            ("Board batching", lambda: test_board_batching(boards, 50)),
-            ("Eye pair batching", lambda: test_eye_pair_batching(boards)),
+            # ("No delays", lambda: test_sequential_with_delays(boards, 0)),
+            # ("5ms delays", lambda: test_sequential_with_delays(boards, 5)),
+            # ("10ms delays", lambda: test_sequential_with_delays(boards, 10)),
+            # ("Board batching", lambda: test_board_batching(boards, 50)),
+            # ("Eye pair batching", lambda: test_eye_pair_batching(boards)),
+            ("Sequential with 10ms delay", lambda: test_sequential_with_delays(boards, 10)),
         ]
         
         results = {}
@@ -138,22 +159,7 @@ def main():
             success = test_func()
             results[strategy_name] = success
             time.sleep(1)  # Rest between tests
-        
-        # Summary
-        print(f"\n{'='*60}")
-        print("TIMING TEST RESULTS:")
-        print(f"{'='*60}")
-        for strategy, success in results.items():
-            status = "✓ SUCCESS" if success else "✗ FAILED"
-            print(f"{strategy:20} : {status}")
-        
-        print(f"\nRecommendation:")
-        successful_strategies = [name for name, success in results.items() if success]
-        if successful_strategies:
-            print(f"Use: {successful_strategies[0]}")
-        else:
-            print("Consider reducing number of simultaneous servos or checking power supply")
-            
+    
     except KeyboardInterrupt:
         print("\nTest stopped by user")
     except Exception as e:
