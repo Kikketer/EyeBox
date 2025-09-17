@@ -40,7 +40,7 @@ class EyeScheduler:
     def __init__(self):
         self.eye_schedule = {}  # {(board_num, eye_num): next_move_time}
         self.last_command_time = 0  # Track timing for 10ms delays
-        self.min_interval = 0.2   # Minimum 200ms between movements per eye
+        self.min_interval = 0.2   # Minimum 200ms between movements per eyes
         self.max_interval = 3.0   # Maximum 3000ms between movements per eye
         
     def schedule_eye_movement(self, board_num, eye_num, initial=False):
