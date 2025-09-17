@@ -34,16 +34,25 @@ running = True
 
 class EyeScheduler:
     """
-    Manages fast eye movements with 20ms scheduling per eyebox (10ms per servo)
+    Manages completely random eye movements with individual timing per eye
     Uses timing discovered in i2c-timing-test.py for optimal I2C communication
     """
     def __init__(self):
         self.eye_schedule = {}  # {(board_num, eye_num): next_move_time}
         self.last_command_time = 0  # Track timing for 10ms delays
+        self.min_interval = 0.2   # Minimum 200ms between movements per eye
+        self.max_interval = 3.0   # Maximum 3000ms between movements per eye
         
-    def schedule_eye_movement(self, board_num, eye_num):
-        """Schedule the next movement for an eye - every 20ms for maximum speed"""
-        next_move = time.time() + 0.02  # 20ms = 0.02 seconds
+    def schedule_eye_movement(self, board_num, eye_num, initial=False):
+        """Schedule the next movement for an eye with random timing"""
+        if initial:
+            # Stagger initial movements randomly over first 5 seconds
+            delay = random.uniform(0, 5.0)
+        else:
+            # Random interval between min and max for ongoing movements
+            delay = random.uniform(self.min_interval, self.max_interval)
+        
+        next_move = time.time() + delay
         self.eye_schedule[(board_num, eye_num)] = next_move
         
     def move_ready_eyes(self):
@@ -133,21 +142,21 @@ def main():
                 motion_type = "Up/Down" if channel % 2 == 0 else "Left/Right"
                 print(f"Board {board_num+1}, Channel {channel} ({motion_type}): PWM 185")
         
-        print("\nStarting high-speed eye movement system...")
-        print("Using 10ms I2C delays with 20ms eye scheduling for maximum speed")
-        print(f"Managing {len(boards) * 8} eyes with continuous random movement")
+        print("\nStarting completely random eye movement system...")
+        print("Using 10ms I2C delays with individual random timing per eye (200ms-3s intervals)")
+        print(f"Managing {len(boards) * 8} eyes with completely independent random movement")
         print("Press Ctrl+C to stop\n")
         
         # Create eye scheduler and initialize all eyes
         scheduler = EyeScheduler()
         
-        # Schedule initial movements for all eyes
+        # Schedule initial movements for all eyes with random staggering
         for board_num in range(len(boards)):
             for eye_num in range(8):  # 8 eyes per board
-                scheduler.schedule_eye_movement(board_num, eye_num)
+                scheduler.schedule_eye_movement(board_num, eye_num, initial=True)
                 up_down_channel = eye_num * 2
                 left_right_channel = eye_num * 2 + 1
-                print(f"Scheduled eye {eye_num} on board {board_num+1} (channels {up_down_channel}/{left_right_channel})")
+                print(f"Scheduled eye {eye_num} on board {board_num+1} (channels {up_down_channel}/{left_right_channel}) with random timing")
         
         # Start single worker thread for all eye movements
         worker_thread = threading.Thread(
