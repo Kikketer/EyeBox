@@ -66,24 +66,14 @@ def main():
                     pca.channels[channel].duty_cycle = pwm_to_duty_cycle(consts.midpoint)
                     print(f"  Channel {channel:2d}: PWM {consts.midpoint} ✓")
                     total_servos += 1
-                    time.sleep(0.05)  # Small delay to prevent overwhelming the boards
+                    time.sleep(0.1)  # Small delay to prevent overwhelming the boards
                 except Exception as e:
                     print(f"  Channel {channel:2d}: Error - {e} ✗")
         
         print("-" * 60)
         print(f"Calibration complete! Set {total_servos} servos to position {consts.midpoint}")
         print("\nAll servos should now be at their calibration position.")
-        print("Verify alignment and press Ctrl+C when done.")
-        
-        # Keep the script running to maintain servo positions
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("\nCalibration session ended by user")
             
-    except KeyboardInterrupt:
-        print("\nCalibration stopped by user")
     except Exception as e:
         print(f"Error during calibration: {e}")
     finally:
