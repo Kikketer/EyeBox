@@ -21,6 +21,7 @@ Hardware Setup:
  - Board 6: Address 0x45 (A0 + A2 jumpers soldered)
  - Board 7: Address 0x46 (A1 + A2 jumpers soldered)
  - Board 8: Address 0x47 (A0 + A1 + A2 jumpers soldered)
+ - Board 9: Address 0x48 (A3 jumpers soldered)
 """
 
 import time
@@ -31,8 +32,8 @@ import sys
 from adafruit_pca9685 import PCA9685
 from consts import consts
 
-# I2C addresses for all 8 boards
-BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]
+# I2C addresses for all 9 boards
+BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48]  # 9 boards total
 
 # Positions for horizontal and vertical movement testing
 LEFT_POSITION = consts.midpoint + consts.eyeLeftExtreme   # leftmost

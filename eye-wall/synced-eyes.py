@@ -11,11 +11,18 @@ import math
 import board
 import busio
 import threading
+import lgpio
 from adafruit_pca9685 import PCA9685
 from consts import consts
 
+# GPIO pin for the toggle switch (BCM numbering)
+TOGGLE_SWITCH_PIN = 17  # GPIO17, physical pin 11
+
+# GPIO handle
+gpio_handle = None
+
 # I2C addresses for multiple boards
-BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47]  # 8 boards total
+BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48]  # 9 boards total
 
 # Global variables
 boards = []
@@ -88,8 +95,8 @@ class SyncedEyeController:
         """Ensure at least 10ms between commands"""
         current_time = time.time()
         time_since_last = current_time - self.last_command_time
-        if time_since_last < 0.01:  # 10ms = 0.01 seconds
-            time.sleep(0.01 - time_since_last)
+        if time_since_last < 0.005:  # 5ms = 0.005 seconds
+            time.sleep(0.005 - time_since_last)
         self.last_command_time = time.time()
     
     def schedule_next_move(self):
@@ -98,8 +105,62 @@ class SyncedEyeController:
         time.sleep(delay)
         return self.move_all_eyes()
 
+def setup_gpio():
+    """Set up GPIO for the toggle switch using lgpio"""
+    global gpio_handle
+    try:
+        # Open the GPIO device
+        gpio_handle = lgpio.gpiochip_open(0)
+        
+        # Set the pin as input with pull-up
+        lgpio.gpio_claim_input(gpio_handle, TOGGLE_SWITCH_PIN, lgpio.SET_PULL_UP)
+        
+        print(f"Toggle switch set up on GPIO{TOGGLE_SWITCH_PIN} using lgpio")
+        return True
+        
+    except Exception as e:
+        print(f"Error setting up GPIO: {e}")
+        print("\n" + "="*60)
+        print("ERROR: Failed to initialize GPIO. Make sure:")
+        print("1. You're running with sudo")
+        print("2. You have the lgpio library installed (pip install lgpio)")
+        print("3. Your user is in the 'gpio' group (run: sudo usermod -a -G gpio $USER)")
+        print("4. You may need to reboot after adding to the gpio group")
+        print("="*60 + "\n")
+        return False
+
+def is_switch_on():
+    """Check if the toggle switch is in the ON position"""
+    global gpio_handle
+    try:
+        if gpio_handle is not None:
+            # Read the pin state (0 = ON/LOW, 1 = OFF/HIGH due to pull-up)
+            state = lgpio.gpio_read(gpio_handle, TOGGLE_SWITCH_PIN)
+            # Switch is ON when the pin reads LOW (connected to GND when ON)
+            return state == 0
+        return True  # Default to ON if GPIO not available
+    except Exception as e:
+        print(f"Error reading GPIO: {e}")
+        return True  # Default to ON on error
+
+def wait_for_switch_change():
+    """Wait for the switch to change state"""
+    current_state = is_switch_on()
+    while is_switch_on() == current_state:
+        time.sleep(0.1)
+
 def main():
     print("Initializing Synced Eye Movement System...")
+    
+    # Setup GPIO and check if it was successful
+    gpio_available = setup_gpio()
+    if not gpio_available:
+        print("Running in simulation mode (no GPIO access). Eye movements will run automatically.")
+    else:
+        # Wait for switch to be turned on if GPIO is available
+        print("\nWaiting for toggle switch to be turned ON...")
+        while not is_switch_on():
+            time.sleep(0.1)
     
     try:
         # Initialize I2C bus
@@ -143,14 +204,67 @@ def main():
         # Create controller
         controller = SyncedEyeController()
         
-        # Initial movement to random position
-        controller.move_all_eyes()
+        def power_down_servos():
+            """Power down all servos by setting duty cycle to 0"""
+            for board_num, pca in enumerate(boards):
+                for channel in range(16):
+                    pca.channels[channel].duty_cycle = 0  # 0% duty cycle powers off the servo
+                    time.sleep(0.01)  # Small delay between each motor
+        
+        def center_servos():
+            """Center all servos to their midpoint position"""
+            print("Centering servos...")
+            for board_num, pca in enumerate(boards):
+                for channel in range(16):
+                    pca.channels[channel].duty_cycle = pwm_to_duty_cycle(consts.midpoint)
+                    time.sleep(0.01)  # 10ms delay between each motor
+            time.sleep(2)  # Wait for servos to reach center
+            power_down_servos()
+            print("Servos centered and powered down")
+        
+        # Initial state
+        global running
+        was_on = is_switch_on()
+        
+        # Initial behavior based on switch state
+        if was_on:
+            print("\nStarting with switch ON. Centering servos...")
+            center_servos()
+            time.sleep(0.5)
+        else:
+            print("\nStarting with switch OFF. Waiting for switch to turn ON...")
+            power_down_servos()
         
         # Main loop
-        global running
         while running:
             try:
-                controller.schedule_next_move()
+                switch_on = is_switch_on()
+                
+                if switch_on:
+                    if not was_on:  # Just turned on
+                        print("\nSwitch turned ON. Centering servos...")
+                        center_servos()
+                        time.sleep(0.5)
+                        print("Starting random eye movements...")
+                        was_on = True
+                    
+                    # Run one movement cycle
+                    controller.move_all_eyes()
+                    # Power down after movement
+                    power_down_servos()
+                    # Wait for next movement
+                    time.sleep(random.uniform(controller.min_interval, controller.max_interval))
+                    
+                else:  # Switch is OFF
+                    if was_on:  # Just turned off
+                        print("\nSwitch turned OFF. Centering servos...")
+                        center_servos()
+                        print("Waiting for switch to be turned back ON...")
+                        was_on = False
+                    # Small delay to prevent high CPU usage
+                    time.sleep(0.1)
+                    
+                    
             except KeyboardInterrupt:
                 print("\nStopping all eye movements...")
                 running = False
@@ -172,6 +286,16 @@ def main():
                     pca.channels[channel].duty_cycle = 0
                 pca.deinit()
                 print(f"Board {board_num+1} shutdown complete")
+            
+            # Clean up GPIO if it was initialized
+            global gpio_handle
+            if gpio_handle is not None:
+                print("Cleaning up GPIO...")
+                try:
+                    lgpio.gpiochip_close(gpio_handle)
+                    gpio_handle = None
+                except Exception as e:
+                    print(f"Warning: Error cleaning up GPIO: {e}")
         except Exception as e:
             print(f"Error during shutdown: {e}")
 
