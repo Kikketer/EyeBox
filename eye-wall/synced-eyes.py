@@ -33,8 +33,8 @@ class SyncedEyeController:
         self.last_h_pos = consts.midpoint  # Start at center
         self.last_v_pos = consts.midpoint  # Start at center
         self.last_move_time = 0
-        self.min_interval = 0.75  # Minimum 0.75 seconds between movements
-        self.max_interval = 3  # Maximum 3 seconds between movements
+        self.min_interval = 0.25  # Minimum 0.25 seconds between movements
+        self.max_interval = 1  # Maximum 1 second between movements
         self.min_distance = 0.3  # Minimum 30% distance from previous position
         self.last_command_time = 0
         
@@ -65,6 +65,11 @@ class SyncedEyeController:
             if distance >= self.min_distance:
                 return new_h_pos, new_v_pos
     
+    def _shutdown_servo(self, pca, h_channel, v_channel):
+        """Helper function to shut down a single servo after delay"""
+        pca.channels[h_channel].duty_cycle = 0
+        pca.channels[v_channel].duty_cycle = 0
+    
     def move_all_eyes(self):
         """Move all eyes to the same position with proper timing"""
         if not boards:
@@ -90,20 +95,18 @@ class SyncedEyeController:
                 # Set left/right position with 10ms delay
                 self._enforce_delay()
                 pca.channels[left_right_channel].duty_cycle = pwm_to_duty_cycle(h_pos)
+                
+                # Schedule servo shutdown after 50ms without blocking
+                threading.Timer(0.05, self._shutdown_servo, 
+                              args=(pca, left_right_channel, up_down_channel)).start()
     
     def _enforce_delay(self):
-        """Ensure at least 10ms between commands"""
+        """Ensure at least 5ms between commands"""
         current_time = time.time()
         time_since_last = current_time - self.last_command_time
-        if time_since_last < 0.005:  # 5ms = 0.005 seconds
-            time.sleep(0.005 - time_since_last)
+        if time_since_last < 0.004:  # 4ms = 0.004 seconds
+            time.sleep(0.004 - time_since_last)
         self.last_command_time = time.time()
-    
-    def schedule_next_move(self):
-        """Schedule the next eye movement with random delay"""
-        delay = random.uniform(self.min_interval, self.max_interval)
-        time.sleep(delay)
-        return self.move_all_eyes()
 
 def setup_gpio():
     """Set up GPIO for the toggle switch using lgpio"""
@@ -250,8 +253,6 @@ def main():
                     
                     # Run one movement cycle
                     controller.move_all_eyes()
-                    # Power down after movement
-                    power_down_servos()
                     # Wait for next movement
                     time.sleep(random.uniform(controller.min_interval, controller.max_interval))
                     
