@@ -20,3 +20,9 @@ How to hook up and use the servo drivers: https://learn.adafruit.com/16-channel-
 5. `python3 <file>.py` to run
 
 Make sure to hook up the servos. All even pins are Left/Right and odd pins are Up/Down.
+
+## Typical Eye Wall
+
+Run `synced-eyes.py` to have the eyes all look similar directions at the same time. This is a nice simple file for just having the eyes be random but kind of scary since they look at the same thing at the same time. Useful for when you don't have the kinect attached.
+
+Run `focus-eyes.py` when you have a kinect attached, this will have the eyes focus on the closest object.
