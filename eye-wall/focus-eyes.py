@@ -27,11 +27,13 @@ except ImportError:
     sys.exit(1)
 
 # Eye zone definitions (board.eye format)
-LEFT_ZONE = [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 6.1, 6.2, 6.3, 6.4, 
-             6.5, 6.6, 6.7, 6.8, 7.4, 7.2, 7.3, 6.5, 9.6, 9.5, 9.3, 5.7]
-RIGHT_ZONE = [3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 2.1, 2.2, 2.3, 2.4, 
-              2.5, 2.6, 2.7, 2.8, 4.6, 8.1, 8.2, 8.4, 8.6, 4.5, 4.2, 5.6, 
-              8.7, 5.3, 5.2, 8.8, 8.5]
+# TODO Use zones, the kinect doesn't detect all that close so the entire wall looking
+# in the same direction doesn't actually look all that bad
+# LEFT_ZONE = [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 6.1, 6.2, 6.3, 6.4, 
+#              6.5, 6.6, 6.7, 6.8, 7.4, 7.2, 7.3, 6.5, 9.6, 9.5, 9.3, 5.7]
+# RIGHT_ZONE = [3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 2.1, 2.2, 2.3, 2.4, 
+#               2.5, 2.6, 2.7, 2.8, 4.6, 8.1, 8.2, 8.4, 8.6, 4.5, 4.2, 5.6, 
+#               8.7, 5.3, 5.2, 8.8, 8.5]
 
 # Kinect frame dimensions (from depth-check.py)
 KINECT_WIDTH = 640
@@ -122,46 +124,6 @@ class EyeController:
             print(f"Error reading from Kinect: {e}")
             
         return None, None, None, None
-    
-    def map_to_eye_position(self, x, y, depth, zone):
-        """Map Kinect coordinates to eye positions based on zone"""
-        # Normalize coordinates to 0-1 range
-        x_norm = x / KINECT_WIDTH  # 0=left, 1=right
-        y_norm = y / KINECT_HEIGHT  # 0=top, 1=bottom
-        
-        # Calculate depth factor (1.0 at closest, 0.1 at max depth)
-        depth_factor = 1.0 - 0.9 * min(max((depth - MIN_DEPTH_MM) / (MAX_DEPTH_MM - MIN_DEPTH_MM), 0), 1)
-        
-        # Calculate horizontal position based on zone
-        if zone == 'left':
-            # Left zone eyes look more extreme to the left when object is on the left
-            # Map left 1/3 of screen to full left movement
-            x_zone = min(x_norm * 3, 1.0)  # Scale x position within zone
-            h_pos = consts.midpoint - consts.eyeLeftExtreme
-        elif zone == 'right':
-            # Right zone eyes look more extreme to the right when object is on the right
-            # Map right 1/3 of screen to full right movement
-            x_zone = max((x_norm - 2/3) * 3, 0)  # Scale x position within zone
-            h_pos = consts.midpoint + consts.eyeLeftExtreme
-        else:  # center zone
-            # Center zone eyes follow the x position in the middle 1/3 of screen
-            x_center = (x_norm - 1/3) * 3  # Map middle 1/3 to [-1, 1] range
-            x_center = max(-1, min(1, x_center))  # Clamp to [-1, 1]
-            h_pos = consts.midpoint + consts.eyeLeftExtreme
-        
-        # Vertical movement is the same for all zones
-        # v_pos = consts.midpoint + int((y_norm - 0.5) * 2 * 
-        #        (consts.eyeDownExtreme if y_norm > 0.5 else consts.eyeUpExtreme) * depth_factor)
-        
-        # Ensure positions are within bounds
-        h_pos = max(consts.midpoint - consts.eyeLeftExtreme, 
-                   min(consts.midpoint + consts.eyeRightExtreme, h_pos))
-        # v_pos = max(consts.midpoint - consts.eyeUpExtreme, 
-        #            min(consts.midpoint + consts.eyeDownExtreme, v_pos))
-
-        v_pos = consts.midpoint
-        
-        return h_pos, v_pos
     
     def _enforce_delay(self):
         """Ensure at least 5ms between commands to prevent signal conflicts"""
