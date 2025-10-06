@@ -200,14 +200,10 @@ class EyeController:
                     # Update last Kinect data and movement time
                     self.last_depth_data = (depth, x, y, depth_frame)
                     self.last_kinect_update = current_time
+                    x_pct = (x / KINECT_WIDTH)
+                    y_pct = 1 - (y / KINECT_HEIGHT)
                     
-                    if self.debug:
-                        # Clear screen and move cursor to top-left
-                        print("\033[H\033[J", end='')
-                        # Debug: Print focus point info
-                        x_pct = (x / KINECT_WIDTH)
-                        y_pct = 1 - (y / KINECT_HEIGHT)
-                        print(f"\rTracking: X={x:3d} ({x_pct:.2f}), Y={y:3d} ({y_pct:.2f}), Depth={depth:4d}mm")
+                    print(f"\rTracking: X={x:3d} ({x_pct:.2f}), Y={y:3d} ({y_pct:.2f}), Depth={depth:4d}mm")
                     
                     # Calculate eye positions based on Kinect input
                     x_pos = ((consts.eyeLeftExtreme + consts.eyeRightExtreme) * x_pct) + (consts.midpoint - consts.eyeLeftExtreme)
@@ -216,9 +212,6 @@ class EyeController:
                     # Update last positions for random movement reference
                     self.last_h_pos = x_pos
                     self.last_v_pos = y_pos
-                    
-                    if self.debug:
-                        print(f"Moving to: H={int(x_pos)}, V={int(y_pos)}", end='', flush=True)
                     
                     self.move_all_eyes(x_pos, y_pos)
                     self.last_move_time = current_time
