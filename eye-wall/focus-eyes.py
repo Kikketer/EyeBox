@@ -16,8 +16,15 @@ import busio
 import numpy as np
 import random
 import math
+import lgpio
 from adafruit_pca9685 import PCA9685
 from consts import consts
+
+# GPIO pin for the toggle switch (BCM numbering)
+TOGGLE_SWITCH_PIN = 17  # GPIO17, physical pin 11
+
+# GPIO handle
+gpio_handle = None
 
 # Kinect imports
 try:
@@ -43,7 +50,7 @@ KINECT_WIDTH = 640
 KINECT_HEIGHT = 480
 
 MIN_DEPTH_MM = 400
-MAX_DEPTH_MM = 900
+MAX_DEPTH_MM = 600
 
 class EyeController:
     def __init__(self, debug=False):
@@ -54,14 +61,54 @@ class EyeController:
         self.last_kinect_update = 0  # Timestamp of last Kinect update
         self.last_depth_data = (None, None, None, None)  # (depth, x, y, depth_frame)
         self.last_move_time = time.time()  # Track when we last moved the eyes
-        self.random_move_interval = 3.0  # Seconds of no movement before random movements start
+        self.random_move_interval = 2.0
+        self.gpio_available = self.setup_gpio()
         self.initialize_eyes()
+        self.just_lost_sight = False
         
         # Initialize random movement parameters
         self.last_h_pos = consts.midpoint
         self.last_v_pos = consts.midpoint
         self.min_distance = 0.3  # Minimum 30% distance from previous position for random moves
         
+    def setup_gpio(self):
+        """Set up GPIO for the toggle switch using lgpio"""
+        try:
+            # Open the GPIO device
+            global gpio_handle
+            gpio_handle = lgpio.gpiochip_open(0)
+            
+            # Set the pin as input with pull-up
+            lgpio.gpio_claim_input(gpio_handle, TOGGLE_SWITCH_PIN, lgpio.SET_PULL_UP)
+            
+            print(f"Toggle switch set up on GPIO{TOGGLE_SWITCH_PIN} using lgpio")
+            return True
+            
+        except Exception as e:
+            print(f"Error setting up GPIO: {e}")
+            print("\n" + "="*60)
+            print("ERROR: Failed to initialize GPIO. Make sure:")
+            print("1. You're running with sudo")
+            print("2. You have the lgpio library installed (pip install lgpio)")
+            print("3. Your user is in the 'gpio' group (run: sudo usermod -a -G gpio $USER)")
+            print("4. You may need to reboot after adding to the gpio group")
+            print("="*60 + "\n")
+            return False
+            
+    def is_switch_on(self):
+        """Check if the toggle switch is in the ON position"""
+        global gpio_handle
+        try:
+            if gpio_handle is not None:
+                # Read the pin state (0 = ON/LOW, 1 = OFF/HIGH due to pull-up)
+                state = lgpio.gpio_read(gpio_handle, TOGGLE_SWITCH_PIN)
+                # Switch is ON when the pin reads LOW (connected to GND when ON)
+                return state == 0
+            return True  # Default to ON if GPIO not available
+        except Exception as e:
+            print(f"Error reading GPIO: {e}")
+            return True  # Default to ON on error
+
     def initialize_eyes(self):
         """Initialize PCA9685 controllers and eye zone mapping"""
         # Initialize I2C bus
@@ -159,6 +206,33 @@ class EyeController:
         pca.channels[h_channel].duty_cycle = 0
         pca.channels[v_channel].duty_cycle = 0
         
+    def lost_sight(self):
+        """Perform a 'lost sight' animation where eyes look around"""
+        if not self.boards:
+            return
+            
+        # Center all eyes
+        print("Lost sight - centering eyes...")
+        self.move_all_eyes(consts.midpoint, consts.midpoint)
+        time.sleep(0.5)  # Wait at center
+        
+        # Look left
+        print("Looking left...")
+        left_pos = consts.midpoint - consts.eyeLeftExtreme
+        self.move_all_eyes(left_pos, consts.midpoint)
+        time.sleep(0.3)  # Brief pause at left
+        
+        # Look right
+        print("Looking right...")
+        right_pos = consts.midpoint + consts.eyeRightExtreme
+        self.move_all_eyes(right_pos, consts.midpoint)
+        time.sleep(0.3)  # Brief pause at right
+        
+        # Return to center
+        print("Returning to center...")
+        self.move_all_eyes(consts.midpoint, consts.midpoint)
+        time.sleep(0.5) # hold... so sad
+        
     def move_all_eyes(self, x, y):
         """Move all eyes to the same position with proper timing"""
         if not self.boards:
@@ -188,10 +262,27 @@ class EyeController:
         """Main tracking loop"""
         print("Starting eye tracking. Press Ctrl+C to exit.")
         
+        # Wait for switch to be turned on if GPIO is available
+        if self.gpio_available:
+            print("\nWaiting for toggle switch to be turned ON...")
+            while not self.is_switch_on():
+                time.sleep(0.1)
+        else:
+            print("Running in simulation mode (no GPIO access). Eye movements will run automatically.")
+        
         try:
             while True:
                 current_time = time.time()
                 time_since_last_move = current_time - self.last_move_time
+                
+                # Check if switch is on (only if GPIO is available)
+                if self.gpio_available and not self.is_switch_on():
+                    print("Switch turned OFF. Waiting for switch to be turned back ON...")
+                    while not self.is_switch_on():
+                        time.sleep(0.1)
+                    print("Switch turned ON. Resuming eye tracking...")
+                    self.last_move_time = time.time()  # Reset the timer when turning back on
+                    continue
                 
                 # Read from Kinect
                 depth, x, y, depth_frame = self.read_kinect_data()
@@ -215,11 +306,21 @@ class EyeController:
                     
                     self.move_all_eyes(x_pos, y_pos)
                     self.last_move_time = current_time
+                    # Set to true more like "was just viewing stuff"
+                    self.just_lost_sight = True
                     
-                # If no Kinect input for 3 seconds, do random movements
+                # If no Kinect input for the random move interval, do random movements
                 elif time_since_last_move > self.random_move_interval:
-                    # Set a new random interval somewhere between 0.25 and 1 second:
-                    self.random_move_interval = random.uniform(0.25, 1)
+                    # set a new random interval for next movement
+                    self.random_move_interval = random.uniform(0.5, 1.2)
+
+                    # Reenable this later, the timing isn't right with kids getting candy
+                    # if self.just_lost_sight:
+                    #     self.lost_sight()
+                    #     self.just_lost_sight = False
+                    #     self.last_move_time = time.time()  # Reset the move time after lost_sight
+                    #     continue
+
                     if self.debug:
                         print("\rNo Kinect input - random movement", end='', flush=True)
                     
@@ -234,11 +335,8 @@ class EyeController:
                         print(f"\rRandom move to: H={x_pos}, V={y_pos}", end='', flush=True)
                     
                     self.move_all_eyes(x_pos, y_pos)
-                    self.last_move_time = current_time
+                    self.last_move_time = current_time  # Update the move time
                     
-                    # Wait a bit before next random move
-                    time.sleep(0.5)
-                
                 # Small delay to prevent excessive CPU usage
                 time.sleep(0.02)  # ~50 updates per second
                 
