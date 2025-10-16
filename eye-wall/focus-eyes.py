@@ -37,13 +37,14 @@ except ImportError:
     sys.exit(1)
 
 # Eye zone definitions (board.eye format)
-# TODO Use zones, the kinect doesn't detect all that close so the entire wall looking
-# in the same direction doesn't actually look all that bad
-# LEFT_ZONE = [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 6.1, 6.2, 6.3, 6.4, 
-#              6.5, 6.6, 6.7, 6.8, 7.4, 7.2, 7.3, 6.5, 9.6, 9.5, 9.3, 5.7]
-# RIGHT_ZONE = [3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 2.1, 2.2, 2.3, 2.4, 
-#               2.5, 2.6, 2.7, 2.8, 4.6, 8.1, 8.2, 8.4, 8.6, 4.5, 4.2, 5.6, 
-#               8.7, 5.3, 5.2, 8.8, 8.5]
+# These zones create a parallax effect - eyes closer to the focus point look less extreme
+# than eyes further away, creating the illusion of depth tracking
+LEFT_ZONE = [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 6.1, 6.2, 6.3, 6.4, 
+             6.5, 6.6, 6.7, 6.8, 7.4, 7.2, 7.3, 6.5, 9.6, 9.5, 9.3, 5.7]
+CENTER_ZONE = [7.1, 7.5, 7.6, 7.7, 7.8, 9.1, 9.2, 9.4, 9.7, 9.8, 5.1, 5.4, 5.5, 5.8]
+RIGHT_ZONE = [3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 2.1, 2.2, 2.3, 2.4, 
+              2.5, 2.6, 2.7, 2.8, 4.6, 8.1, 8.2, 8.4, 8.6, 4.5, 4.2, 5.6, 
+              8.7, 5.3, 5.2, 8.8, 8.5, 4.1, 4.3, 4.4, 4.7, 4.8]
 
 # Kinect frame dimensions (from depth-check.py)
 KINECT_WIDTH = 640
@@ -124,6 +125,16 @@ class EyeController:
                 print(f"Initialized board {i+1} at 0x{address:02X}")
             except Exception as e:
                 print(f"Warning: Could not initialize board at 0x{address:02X}: {e}")
+        
+        # Map each eye to its zone
+        for eye_id in LEFT_ZONE:
+            self.eye_zones[eye_id] = 'left'
+        for eye_id in CENTER_ZONE:
+            self.eye_zones[eye_id] = 'center'
+        for eye_id in RIGHT_ZONE:
+            self.eye_zones[eye_id] = 'right'
+        
+        print(f"Zone mapping: {len(LEFT_ZONE)} left, {len(CENTER_ZONE)} center, {len(RIGHT_ZONE)} right")
     
     def get_depth_mm_supported(self):
         """Return True if freenect exposes millimeters depth format."""
@@ -257,6 +268,66 @@ class EyeController:
                 # Schedule servo shutdown after 50ms without blocking
                 threading.Timer(0.05, self._shutdown_servo, 
                               args=(pca, left_right_channel, up_down_channel)).start()
+    
+    def move_eyes_with_parallax(self, x_pct, y_pos):
+        """Move eyes with parallax effect based on zones
+        
+        Args:
+            x_pct: Horizontal position as percentage (0.0 = left from Kinect's view, 1.0 = right)
+            y_pos: Vertical PWM position (same for all eyes)
+        
+        Note: Zones are named from the wall's perspective (looking out at user),
+        so left/right is reversed from the Kinect's view.
+        """
+        if not self.boards:
+            return
+        
+        # Calculate positions for each zone based on parallax effect
+        # Kinect is mounted on wall looking OUT, so x-axis is mirrored:
+        # When Kinect sees x_pct=0 (left), user is in front of RIGHT side of wall
+        # When Kinect sees x_pct=1 (right), user is in front of LEFT side of wall
+        
+        # Left zone (wall's left): looks fully left when x_pct=0, looks straight when x_pct=1
+        left_zone_x = (consts.midpoint - consts.eyeLeftExtreme) + (consts.eyeLeftExtreme * x_pct)
+        
+        # Center zone: normal tracking (moves with focus point)
+        center_zone_x = ((consts.eyeLeftExtreme + consts.eyeRightExtreme) * x_pct) + (consts.midpoint - consts.eyeLeftExtreme)
+        
+        # Right zone (wall's right): looks straight when x_pct=0, looks fully right when x_pct=1
+        right_zone_x = consts.midpoint + (consts.eyeRightExtreme * x_pct)
+        
+        if self.debug:
+            print(f"\rZone positions - L:{left_zone_x:.0f} C:{center_zone_x:.0f} R:{right_zone_x:.0f}", end='', flush=True)
+        
+        # Move eyes based on their zone
+        for board_num, pca in enumerate(self.boards):
+            for eye_num in range(8):  # 8 eyes per board
+                # Calculate eye ID (board.eye format)
+                eye_id = (board_num + 1) + (eye_num + 1) / 10
+                
+                # Determine which zone this eye belongs to and get its x position
+                zone = self.eye_zones.get(eye_id, 'center')
+                if zone == 'left':
+                    x_pos = left_zone_x
+                elif zone == 'right':
+                    x_pos = right_zone_x
+                else:  # center
+                    x_pos = center_zone_x
+                
+                up_down_channel = eye_num * 2
+                left_right_channel = eye_num * 2 + 1
+                
+                # Set up/down position
+                self._enforce_delay()
+                pca.channels[up_down_channel].duty_cycle = pwm_to_duty_cycle(y_pos)
+                
+                # Set left/right position based on zone
+                self._enforce_delay()
+                pca.channels[left_right_channel].duty_cycle = pwm_to_duty_cycle(x_pos)
+                
+                # Schedule servo shutdown after 50ms without blocking
+                threading.Timer(0.05, self._shutdown_servo, 
+                              args=(pca, left_right_channel, up_down_channel)).start()
 
     def run(self):
         """Main tracking loop"""
@@ -296,15 +367,18 @@ class EyeController:
                     
                     print(f"\rTracking: X={x:3d} ({x_pct:.2f}), Y={y:3d} ({y_pct:.2f}), Depth={depth:4d}mm")
                     
-                    # Calculate eye positions based on Kinect input
-                    x_pos = ((consts.eyeLeftExtreme + consts.eyeRightExtreme) * x_pct) + (consts.midpoint - consts.eyeLeftExtreme)
+                    # Calculate vertical position
                     y_pos = ((consts.eyeDownExtreme + consts.eyeUpExtreme) * y_pct) + (consts.midpoint - consts.eyeDownExtreme)
+                    
+                    # Calculate center zone x position for random movement reference
+                    x_pos = ((consts.eyeLeftExtreme + consts.eyeRightExtreme) * x_pct) + (consts.midpoint - consts.eyeLeftExtreme)
                     
                     # Update last positions for random movement reference
                     self.last_h_pos = x_pos
                     self.last_v_pos = y_pos
                     
-                    self.move_all_eyes(x_pos, y_pos)
+                    # Move eyes with parallax effect based on zones
+                    self.move_eyes_with_parallax(x_pct, y_pos)
                     self.last_move_time = current_time
                     # Set to true more like "was just viewing stuff"
                     self.just_lost_sight = True
