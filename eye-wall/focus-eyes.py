@@ -338,7 +338,8 @@ class EyeController:
                     self.last_move_time = current_time  # Update the move time
                     
                 # Small delay to prevent excessive CPU usage
-                time.sleep(0.02)  # ~50 updates per second
+                # Reduced from 20ms to 5ms for faster reaction time
+                time.sleep(0.005)  # ~200 updates per second
                 
         except KeyboardInterrupt:
             print("\nStopping eye tracking...")
