@@ -386,7 +386,7 @@ class EyeController:
                 # If no Kinect input for the random move interval, do random movements
                 elif time_since_last_move > self.random_move_interval:
                     # set a new random interval for next movement
-                    self.random_move_interval = random.uniform(0.5, 1.2)
+                    self.random_move_interval = random.uniform(1.5, 3)
 
                     # Reenable this later, the timing isn't right with kids getting candy
                     # if self.just_lost_sight:
