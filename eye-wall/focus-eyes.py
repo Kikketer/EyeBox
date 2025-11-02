@@ -22,17 +22,8 @@ from adafruit_pca9685 import PCA9685
 
 from consts import consts
 
-# Optional OpenCV (for USB webcam capture)
-try:
-    import cv2
-except Exception:
-    cv2 = None
-
 # GPIO pin for the toggle switch (BCM numbering)
 TOGGLE_SWITCH_PIN = 17  # GPIO17, physical pin 11
-
-# GPIO pin for photo capture button (BCM numbering)
-PHOTO_BUTTON_PIN = 27  # GPIO27, physical pin 13
 
 # GPIO handle
 gpio_handle = None
@@ -84,16 +75,6 @@ class EyeController:
         self.last_v_pos = consts.midpoint
         self.min_distance = 0.3  # Minimum 30% distance from previous position for random moves
 
-        # Photo capture setup
-        self.photo_dir = os.path.join(os.getcwd(), "photos")
-        try:
-            os.makedirs(self.photo_dir, exist_ok=True)
-        except Exception as e:
-            print(f"Warning: could not create photo directory '{self.photo_dir}': {e}")
-        self.camera = None
-        self._init_camera()
-        self.last_photo_time = 0.0  # debounce timer
-
     def setup_gpio(self):
         """Set up GPIO for the toggle switch using lgpio"""
         try:
@@ -103,12 +84,6 @@ class EyeController:
 
             # Set the pin as input with pull-up
             lgpio.gpio_claim_input(gpio_handle, TOGGLE_SWITCH_PIN, lgpio.SET_PULL_UP)
-
-            # Set photo button as input with pull-up
-            try:
-                lgpio.gpio_claim_input(gpio_handle, PHOTO_BUTTON_PIN, lgpio.SET_PULL_UP)
-            except Exception as e:
-                print(f"Warning: could not configure photo button GPIO{PHOTO_BUTTON_PIN}: {e}")
 
             print(f"Toggle switch set up on GPIO{TOGGLE_SWITCH_PIN} using lgpio")
             return True
@@ -137,58 +112,6 @@ class EyeController:
         except Exception as e:
             print(f"Error reading GPIO: {e}")
             return True  # Default to ON on error
-
-    def is_photo_button_pressed(self):
-        """Return True when the photo button is pressed (active-low)."""
-        global gpio_handle
-        try:
-            if gpio_handle is not None:
-                state = lgpio.gpio_read(gpio_handle, PHOTO_BUTTON_PIN)
-                return state == 0
-            return False
-        except Exception as e:
-            if self.debug:
-                print(f"Error reading photo button GPIO: {e}")
-            return False
-
-    def _init_camera(self):
-        """Initialize USB webcam if OpenCV is available."""
-        if cv2 is None:
-            print("Note: OpenCV not available; photo capture disabled. Install opencv-python to enable.")
-            return
-        try:
-            cam = cv2.VideoCapture(0)
-            if not cam.isOpened():
-                print("Warning: could not open /dev/video0; photo capture disabled.")
-                return
-            # Reasonable defaults; adjust if needed
-            cam.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-            cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-            self.camera = cam
-            print("Webcam initialized for photo capture")
-        except Exception as e:
-            print(f"Error initializing webcam: {e}")
-            self.camera = None
-
-    def take_photo(self):
-        """Capture a single frame and save it to the photos directory."""
-        if self.camera is None:
-            print("Photo capture unavailable (no camera).")
-            return None
-        try:
-            ok, frame = self.camera.read()
-            if not ok or frame is None:
-                print("Failed to read frame from camera.")
-                return None
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            fname = f"eyebox_{ts}.jpg"
-            fpath = os.path.join(self.photo_dir, fname)
-            cv2.imwrite(fpath, frame)
-            print(f"Photo saved: {fpath}")
-            return fpath
-        except Exception as e:
-            print(f"Error taking photo: {e}")
-            return None
 
     def initialize_eyes(self):
         """Initialize PCA9685 controllers and eye zone mapping"""
@@ -439,12 +362,6 @@ class EyeController:
 
                 # Read from Kinect
                 depth, x, y, depth_frame = self.read_kinect_data()
-
-                # Handle photo button with simple debounce (1s)
-                if self.is_photo_button_pressed():
-                    if current_time - self.last_photo_time > 1.0:
-                        self.take_photo()
-                        self.last_photo_time = current_time
 
                 if depth is not None and x is not None and y is not None:
                     # Update last Kinect data and movement time

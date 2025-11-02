@@ -7,3 +7,4 @@ freenect
 watchdog
 ollama
 flask
+opencv-python
