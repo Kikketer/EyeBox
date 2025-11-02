@@ -254,23 +254,31 @@ class EyeController:
 
         print(f"Moving all eyes to position: H={x}, V={y}")
 
-        # Move all eyes to the new position
+        # Build list of all eyes with their target positions
+        eye_list = []
         for board_num, pca in enumerate(self.boards):
             for eye_num in range(8):  # 8 eyes per board
-                up_down_channel = eye_num * 2
-                left_right_channel = eye_num * 2 + 1
+                eye_list.append((pca, eye_num, x, y))
+        
+        # Randomize the order to eliminate predictable patterns
+        random.shuffle(eye_list)
+        
+        # Move all eyes in randomized order
+        for pca, eye_num, x_pos, y_pos in eye_list:
+            up_down_channel = eye_num * 2
+            left_right_channel = eye_num * 2 + 1
 
-                # Set up/down position with 10ms delay
-                self._enforce_delay()
-                pca.channels[up_down_channel].duty_cycle = pwm_to_duty_cycle(y)
+            # Set up/down position with 10ms delay
+            self._enforce_delay()
+            pca.channels[up_down_channel].duty_cycle = pwm_to_duty_cycle(y_pos)
 
-                # Set left/right position with 10ms delay
-                self._enforce_delay()
-                pca.channels[left_right_channel].duty_cycle = pwm_to_duty_cycle(x)
+            # Set left/right position with 10ms delay
+            self._enforce_delay()
+            pca.channels[left_right_channel].duty_cycle = pwm_to_duty_cycle(x_pos)
 
-                # Schedule servo shutdown after 50ms without blocking
-                threading.Timer(0.05, self._shutdown_servo,
-                                args=(pca, left_right_channel, up_down_channel)).start()
+            # Schedule servo shutdown after 50ms without blocking
+            threading.Timer(0.05, self._shutdown_servo,
+                            args=(pca, left_right_channel, up_down_channel)).start()
 
     def move_eyes_with_parallax(self, x_pct, y_pos):
         """Move eyes with parallax effect based on zones
@@ -304,7 +312,8 @@ class EyeController:
             print(f"\rZone positions - L:{left_zone_x:.0f} C:{center_zone_x:.0f} R:{right_zone_x:.0f}", end='',
                   flush=True)
 
-        # Move eyes based on their zone
+        # Build list of all eyes with their calculated positions
+        eye_list = []
         for board_num, pca in enumerate(self.boards):
             for eye_num in range(8):  # 8 eyes per board
                 # Calculate eye ID (board.eye format)
@@ -318,21 +327,28 @@ class EyeController:
                     x_pos = right_zone_x
                 else:  # center
                     x_pos = center_zone_x
+                
+                eye_list.append((pca, eye_num, x_pos, y_pos))
+        
+        # Randomize the order to eliminate predictable patterns
+        random.shuffle(eye_list)
+        
+        # Move all eyes in randomized order
+        for pca, eye_num, x_pos, y_pos in eye_list:
+            up_down_channel = eye_num * 2
+            left_right_channel = eye_num * 2 + 1
 
-                up_down_channel = eye_num * 2
-                left_right_channel = eye_num * 2 + 1
+            # Set up/down position
+            self._enforce_delay()
+            pca.channels[up_down_channel].duty_cycle = pwm_to_duty_cycle(y_pos)
 
-                # Set up/down position
-                self._enforce_delay()
-                pca.channels[up_down_channel].duty_cycle = pwm_to_duty_cycle(y_pos)
+            # Set left/right position based on zone
+            self._enforce_delay()
+            pca.channels[left_right_channel].duty_cycle = pwm_to_duty_cycle(x_pos)
 
-                # Set left/right position based on zone
-                self._enforce_delay()
-                pca.channels[left_right_channel].duty_cycle = pwm_to_duty_cycle(x_pos)
-
-                # Schedule servo shutdown after 50ms without blocking
-                threading.Timer(0.05, self._shutdown_servo,
-                                args=(pca, left_right_channel, up_down_channel)).start()
+            # Schedule servo shutdown after 50ms without blocking
+            threading.Timer(0.05, self._shutdown_servo,
+                            args=(pca, left_right_channel, up_down_channel)).start()
 
     def run(self):
         """Main tracking loop"""
