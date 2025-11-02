@@ -5,23 +5,34 @@ Controls eye movements based on horizontal position from Kinect.
 All eyes move together based on X position of the closest point.
 """
 
-import time
-import math
-import sys
 import argparse
-import board
-import time
-import threading
-import busio
-import numpy as np
 import random
-import math
+import sys
+import threading
+import time
+import os
+from datetime import datetime
+
+import board
+import busio
 import lgpio
+import math
+import numpy as np
 from adafruit_pca9685 import PCA9685
+
 from consts import consts
+
+# Optional OpenCV (for USB webcam capture)
+try:
+    import cv2
+except Exception:
+    cv2 = None
 
 # GPIO pin for the toggle switch (BCM numbering)
 TOGGLE_SWITCH_PIN = 17  # GPIO17, physical pin 11
+
+# GPIO pin for photo capture button (BCM numbering)
+PHOTO_BUTTON_PIN = 27  # GPIO27, physical pin 13
 
 # GPIO handle
 gpio_handle = None
@@ -39,11 +50,11 @@ except ImportError:
 # Eye zone definitions (board.eye format)
 # These zones create a parallax effect - eyes closer to the focus point look less extreme
 # than eyes further away, creating the illusion of depth tracking
-LEFT_ZONE = [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 6.1, 6.2, 6.3, 6.4, 
+LEFT_ZONE = [1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 6.1, 6.2, 6.3, 6.4,
              6.5, 6.6, 6.7, 6.8, 7.4, 7.2, 7.3, 6.5, 9.6, 9.5, 9.3, 5.7]
 CENTER_ZONE = [7.1, 7.5, 7.6, 7.7, 7.8, 9.1, 9.2, 9.4, 9.7, 9.8, 5.1, 5.4, 5.5, 5.8]
-RIGHT_ZONE = [3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 2.1, 2.2, 2.3, 2.4, 
-              2.5, 2.6, 2.7, 2.8, 4.6, 8.1, 8.2, 8.4, 8.6, 4.5, 4.2, 5.6, 
+RIGHT_ZONE = [3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 2.1, 2.2, 2.3, 2.4,
+              2.5, 2.6, 2.7, 2.8, 4.6, 8.1, 8.2, 8.4, 8.6, 4.5, 4.2, 5.6,
               8.7, 5.3, 5.2, 8.8, 8.5, 4.1, 4.3, 4.4, 4.7, 4.8]
 
 # Kinect frame dimensions (from depth-check.py)
@@ -52,6 +63,7 @@ KINECT_HEIGHT = 480
 
 MIN_DEPTH_MM = 400
 MAX_DEPTH_MM = 600
+
 
 class EyeController:
     def __init__(self, debug=False):
@@ -66,36 +78,52 @@ class EyeController:
         self.gpio_available = self.setup_gpio()
         self.initialize_eyes()
         self.just_lost_sight = False
-        
+
         # Initialize random movement parameters
         self.last_h_pos = consts.midpoint
         self.last_v_pos = consts.midpoint
         self.min_distance = 0.3  # Minimum 30% distance from previous position for random moves
-        
+
+        # Photo capture setup
+        self.photo_dir = os.path.join(os.getcwd(), "photos")
+        try:
+            os.makedirs(self.photo_dir, exist_ok=True)
+        except Exception as e:
+            print(f"Warning: could not create photo directory '{self.photo_dir}': {e}")
+        self.camera = None
+        self._init_camera()
+        self.last_photo_time = 0.0  # debounce timer
+
     def setup_gpio(self):
         """Set up GPIO for the toggle switch using lgpio"""
         try:
             # Open the GPIO device
             global gpio_handle
             gpio_handle = lgpio.gpiochip_open(0)
-            
+
             # Set the pin as input with pull-up
             lgpio.gpio_claim_input(gpio_handle, TOGGLE_SWITCH_PIN, lgpio.SET_PULL_UP)
-            
+
+            # Set photo button as input with pull-up
+            try:
+                lgpio.gpio_claim_input(gpio_handle, PHOTO_BUTTON_PIN, lgpio.SET_PULL_UP)
+            except Exception as e:
+                print(f"Warning: could not configure photo button GPIO{PHOTO_BUTTON_PIN}: {e}")
+
             print(f"Toggle switch set up on GPIO{TOGGLE_SWITCH_PIN} using lgpio")
             return True
-            
+
         except Exception as e:
             print(f"Error setting up GPIO: {e}")
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("ERROR: Failed to initialize GPIO. Make sure:")
             print("1. You're running with sudo")
             print("2. You have the lgpio library installed (pip install lgpio)")
             print("3. Your user is in the 'gpio' group (run: sudo usermod -a -G gpio $USER)")
             print("4. You may need to reboot after adding to the gpio group")
-            print("="*60 + "\n")
+            print("=" * 60 + "\n")
             return False
-            
+
     def is_switch_on(self):
         """Check if the toggle switch is in the ON position"""
         global gpio_handle
@@ -110,11 +138,63 @@ class EyeController:
             print(f"Error reading GPIO: {e}")
             return True  # Default to ON on error
 
+    def is_photo_button_pressed(self):
+        """Return True when the photo button is pressed (active-low)."""
+        global gpio_handle
+        try:
+            if gpio_handle is not None:
+                state = lgpio.gpio_read(gpio_handle, PHOTO_BUTTON_PIN)
+                return state == 0
+            return False
+        except Exception as e:
+            if self.debug:
+                print(f"Error reading photo button GPIO: {e}")
+            return False
+
+    def _init_camera(self):
+        """Initialize USB webcam if OpenCV is available."""
+        if cv2 is None:
+            print("Note: OpenCV not available; photo capture disabled. Install opencv-python to enable.")
+            return
+        try:
+            cam = cv2.VideoCapture(0)
+            if not cam.isOpened():
+                print("Warning: could not open /dev/video0; photo capture disabled.")
+                return
+            # Reasonable defaults; adjust if needed
+            cam.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            self.camera = cam
+            print("Webcam initialized for photo capture")
+        except Exception as e:
+            print(f"Error initializing webcam: {e}")
+            self.camera = None
+
+    def take_photo(self):
+        """Capture a single frame and save it to the photos directory."""
+        if self.camera is None:
+            print("Photo capture unavailable (no camera).")
+            return None
+        try:
+            ok, frame = self.camera.read()
+            if not ok or frame is None:
+                print("Failed to read frame from camera.")
+                return None
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fname = f"eyebox_{ts}.jpg"
+            fpath = os.path.join(self.photo_dir, fname)
+            cv2.imwrite(fpath, frame)
+            print(f"Photo saved: {fpath}")
+            return fpath
+        except Exception as e:
+            print(f"Error taking photo: {e}")
+            return None
+
     def initialize_eyes(self):
         """Initialize PCA9685 controllers and eye zone mapping"""
         # Initialize I2C bus
         i2c = busio.I2C(board.SCL, board.SDA)
-        
+
         # Initialize PCA9685 boards (from synced-eyes.py)
         BOARD_ADDRESSES = [0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48]
         for i, address in enumerate(BOARD_ADDRESSES):
@@ -122,10 +202,10 @@ class EyeController:
                 pca = PCA9685(i2c, address=address)
                 pca.frequency = 50  # Standard servo frequency (50Hz)
                 self.boards.append(pca)
-                print(f"Initialized board {i+1} at 0x{address:02X}")
+                print(f"Initialized board {i + 1} at 0x{address:02X}")
             except Exception as e:
                 print(f"Warning: Could not initialize board at 0x{address:02X}: {e}")
-        
+
         # Map each eye to its zone
         for eye_id in LEFT_ZONE:
             self.eye_zones[eye_id] = 'left'
@@ -133,9 +213,9 @@ class EyeController:
             self.eye_zones[eye_id] = 'center'
         for eye_id in RIGHT_ZONE:
             self.eye_zones[eye_id] = 'right'
-        
+
         print(f"Zone mapping: {len(LEFT_ZONE)} left, {len(CENTER_ZONE)} center, {len(RIGHT_ZONE)} right")
-    
+
     def get_depth_mm_supported(self):
         """Return True if freenect exposes millimeters depth format."""
         return hasattr(freenect, "DEPTH_MM")
@@ -152,18 +232,18 @@ class EyeController:
                 # Fallback to raw 11-bit values
                 depth, _ts = freenect.sync_get_depth(format=freenect.DEPTH_11BIT)
                 depth = depth.astype(np.uint16, copy=False)
-            
+
             # Create a mask for valid depth values within our range
             valid_mask = (depth >= MIN_DEPTH_MM) & (depth <= MAX_DEPTH_MM)
-            
+
             # If no valid points found, return None
             if not np.any(valid_mask):
                 return None, None, None, (depth if self.debug else None)
-                
+
             # Find the closest valid point
             min_depth = np.min(depth[valid_mask])
             y, x = np.where((depth == min_depth) & valid_mask)
-            
+
             # Return the first point if found
             if len(y) > 0 and len(x) > 0:
                 # Calculate the center of mass of all points at min_depth for smoother tracking
@@ -171,12 +251,12 @@ class EyeController:
                 if len(points) > 0:
                     center = np.mean(points, axis=0).astype(int)
                     return int(min_depth), center[1], center[0], (depth if self.debug else None)
-                
+
         except Exception as e:
             print(f"Error reading from Kinect: {e}")
-            
+
         return None, None, None, None
-    
+
     def _enforce_delay(self):
         """Ensure at least 5ms between commands to prevent signal conflicts"""
         current_time = time.time()
@@ -184,7 +264,7 @@ class EyeController:
         if time_since_last < 0.005:  # 5ms = 0.005 seconds
             time.sleep(0.005 - time_since_last)
         self.last_command_time = time.time()
-    
+
     def calculate_random_position(self):
         """Calculate a random position that's at least 30% different from current position"""
         while True:
@@ -197,17 +277,17 @@ class EyeController:
                 consts.midpoint - consts.eyeDownExtreme,
                 consts.midpoint + consts.eyeUpExtreme
             )
-            
+
             # Calculate distance from last position (normalized to 0-1 range)
             h_range = consts.eyeLeftExtreme + consts.eyeRightExtreme
             v_range = consts.eyeUpExtreme + consts.eyeDownExtreme
-            
+
             h_dist = abs(new_h_pos - self.last_h_pos) / h_range if h_range > 0 else 0
             v_dist = abs(new_v_pos - self.last_v_pos) / v_range if v_range > 0 else 0
-            
+
             # Use Euclidean distance in 2D space
-            distance = math.sqrt(h_dist**2 + v_dist**2) / math.sqrt(2)  # Normalize to 0-1
-            
+            distance = math.sqrt(h_dist ** 2 + v_dist ** 2) / math.sqrt(2)  # Normalize to 0-1
+
             # If distance is sufficient, return the new position
             if distance >= self.min_distance:
                 return new_h_pos, new_v_pos
@@ -216,59 +296,59 @@ class EyeController:
         """Helper function to shut down a single servo after delay"""
         pca.channels[h_channel].duty_cycle = 0
         pca.channels[v_channel].duty_cycle = 0
-        
+
     def lost_sight(self):
         """Perform a 'lost sight' animation where eyes look around"""
         if not self.boards:
             return
-            
+
         # Center all eyes
         print("Lost sight - centering eyes...")
         self.move_all_eyes(consts.midpoint, consts.midpoint)
         time.sleep(0.5)  # Wait at center
-        
+
         # Look left
         print("Looking left...")
         left_pos = consts.midpoint - consts.eyeLeftExtreme
         self.move_all_eyes(left_pos, consts.midpoint)
         time.sleep(0.3)  # Brief pause at left
-        
+
         # Look right
         print("Looking right...")
         right_pos = consts.midpoint + consts.eyeRightExtreme
         self.move_all_eyes(right_pos, consts.midpoint)
         time.sleep(0.3)  # Brief pause at right
-        
+
         # Return to center
         print("Returning to center...")
         self.move_all_eyes(consts.midpoint, consts.midpoint)
-        time.sleep(0.5) # hold... so sad
-        
+        time.sleep(0.5)  # hold... so sad
+
     def move_all_eyes(self, x, y):
         """Move all eyes to the same position with proper timing"""
         if not self.boards:
             return
 
         print(f"Moving all eyes to position: H={x}, V={y}")
-        
+
         # Move all eyes to the new position
         for board_num, pca in enumerate(self.boards):
             for eye_num in range(8):  # 8 eyes per board
                 up_down_channel = eye_num * 2
                 left_right_channel = eye_num * 2 + 1
-                
+
                 # Set up/down position with 10ms delay
                 self._enforce_delay()
                 pca.channels[up_down_channel].duty_cycle = pwm_to_duty_cycle(y)
-                
+
                 # Set left/right position with 10ms delay
                 self._enforce_delay()
                 pca.channels[left_right_channel].duty_cycle = pwm_to_duty_cycle(x)
-                
+
                 # Schedule servo shutdown after 50ms without blocking
-                threading.Timer(0.05, self._shutdown_servo, 
-                              args=(pca, left_right_channel, up_down_channel)).start()
-    
+                threading.Timer(0.05, self._shutdown_servo,
+                                args=(pca, left_right_channel, up_down_channel)).start()
+
     def move_eyes_with_parallax(self, x_pct, y_pos):
         """Move eyes with parallax effect based on zones
         
@@ -281,30 +361,32 @@ class EyeController:
         """
         if not self.boards:
             return
-        
+
         # Calculate positions for each zone based on parallax effect
         # Kinect is mounted on wall looking OUT, so x-axis is mirrored:
         # When Kinect sees x_pct=0 (left), user is in front of RIGHT side of wall
         # When Kinect sees x_pct=1 (right), user is in front of LEFT side of wall
-        
+
         # Left zone (wall's left): looks fully left when x_pct=0, looks straight when x_pct=1
         left_zone_x = (consts.midpoint - consts.eyeLeftExtreme) + (consts.eyeLeftExtreme * x_pct)
-        
+
         # Center zone: normal tracking (moves with focus point)
-        center_zone_x = ((consts.eyeLeftExtreme + consts.eyeRightExtreme) * x_pct) + (consts.midpoint - consts.eyeLeftExtreme)
-        
+        center_zone_x = ((consts.eyeLeftExtreme + consts.eyeRightExtreme) * x_pct) + (
+                    consts.midpoint - consts.eyeLeftExtreme)
+
         # Right zone (wall's right): looks straight when x_pct=0, looks fully right when x_pct=1
         right_zone_x = consts.midpoint + (consts.eyeRightExtreme * x_pct)
-        
+
         if self.debug:
-            print(f"\rZone positions - L:{left_zone_x:.0f} C:{center_zone_x:.0f} R:{right_zone_x:.0f}", end='', flush=True)
-        
+            print(f"\rZone positions - L:{left_zone_x:.0f} C:{center_zone_x:.0f} R:{right_zone_x:.0f}", end='',
+                  flush=True)
+
         # Move eyes based on their zone
         for board_num, pca in enumerate(self.boards):
             for eye_num in range(8):  # 8 eyes per board
                 # Calculate eye ID (board.eye format)
                 eye_id = (board_num + 1) + (eye_num + 1) / 10
-                
+
                 # Determine which zone this eye belongs to and get its x position
                 zone = self.eye_zones.get(eye_id, 'center')
                 if zone == 'left':
@@ -313,26 +395,26 @@ class EyeController:
                     x_pos = right_zone_x
                 else:  # center
                     x_pos = center_zone_x
-                
+
                 up_down_channel = eye_num * 2
                 left_right_channel = eye_num * 2 + 1
-                
+
                 # Set up/down position
                 self._enforce_delay()
                 pca.channels[up_down_channel].duty_cycle = pwm_to_duty_cycle(y_pos)
-                
+
                 # Set left/right position based on zone
                 self._enforce_delay()
                 pca.channels[left_right_channel].duty_cycle = pwm_to_duty_cycle(x_pos)
-                
+
                 # Schedule servo shutdown after 50ms without blocking
-                threading.Timer(0.05, self._shutdown_servo, 
-                              args=(pca, left_right_channel, up_down_channel)).start()
+                threading.Timer(0.05, self._shutdown_servo,
+                                args=(pca, left_right_channel, up_down_channel)).start()
 
     def run(self):
         """Main tracking loop"""
         print("Starting eye tracking. Press Ctrl+C to exit.")
-        
+
         # Wait for switch to be turned on if GPIO is available
         if self.gpio_available:
             print("\nWaiting for toggle switch to be turned ON...")
@@ -340,12 +422,12 @@ class EyeController:
                 time.sleep(0.1)
         else:
             print("Running in simulation mode (no GPIO access). Eye movements will run automatically.")
-        
+
         try:
             while True:
                 current_time = time.time()
                 time_since_last_move = current_time - self.last_move_time
-                
+
                 # Check if switch is on (only if GPIO is available)
                 if self.gpio_available and not self.is_switch_on():
                     print("Switch turned OFF. Waiting for switch to be turned back ON...")
@@ -354,35 +436,43 @@ class EyeController:
                     print("Switch turned ON. Resuming eye tracking...")
                     self.last_move_time = time.time()  # Reset the timer when turning back on
                     continue
-                
+
                 # Read from Kinect
                 depth, x, y, depth_frame = self.read_kinect_data()
-                
+
+                # Handle photo button with simple debounce (1s)
+                if self.is_photo_button_pressed():
+                    if current_time - self.last_photo_time > 1.0:
+                        self.take_photo()
+                        self.last_photo_time = current_time
+
                 if depth is not None and x is not None and y is not None:
                     # Update last Kinect data and movement time
                     self.last_depth_data = (depth, x, y, depth_frame)
                     self.last_kinect_update = current_time
                     x_pct = (x / KINECT_WIDTH)
                     y_pct = 1 - (y / KINECT_HEIGHT)
-                    
+
                     print(f"\rTracking: X={x:3d} ({x_pct:.2f}), Y={y:3d} ({y_pct:.2f}), Depth={depth:4d}mm")
-                    
+
                     # Calculate vertical position
-                    y_pos = ((consts.eyeDownExtreme + consts.eyeUpExtreme) * y_pct) + (consts.midpoint - consts.eyeDownExtreme)
-                    
+                    y_pos = ((consts.eyeDownExtreme + consts.eyeUpExtreme) * y_pct) + (
+                                consts.midpoint - consts.eyeDownExtreme)
+
                     # Calculate center zone x position for random movement reference
-                    x_pos = ((consts.eyeLeftExtreme + consts.eyeRightExtreme) * x_pct) + (consts.midpoint - consts.eyeLeftExtreme)
-                    
+                    x_pos = ((consts.eyeLeftExtreme + consts.eyeRightExtreme) * x_pct) + (
+                                consts.midpoint - consts.eyeLeftExtreme)
+
                     # Update last positions for random movement reference
                     self.last_h_pos = x_pos
                     self.last_v_pos = y_pos
-                    
+
                     # Move eyes with parallax effect based on zones
                     self.move_eyes_with_parallax(x_pct, y_pos)
                     self.last_move_time = current_time
                     # Set to true more like "was just viewing stuff"
                     self.just_lost_sight = True
-                    
+
                 # If no Kinect input for the random move interval, do random movements
                 elif time_since_last_move > self.random_move_interval:
                     # set a new random interval for next movement
@@ -397,24 +487,24 @@ class EyeController:
 
                     if self.debug:
                         print("\rNo Kinect input - random movement", end='', flush=True)
-                    
+
                     # Get a new random position
                     x_pos, y_pos = self.calculate_random_position()
-                    
+
                     # Update last positions
                     self.last_h_pos = x_pos
                     self.last_v_pos = y_pos
-                    
+
                     if self.debug:
                         print(f"\rRandom move to: H={x_pos}, V={y_pos}", end='', flush=True)
-                    
+
                     self.move_all_eyes(x_pos, y_pos)
                     self.last_move_time = current_time  # Update the move time
-                    
+
                 # Small delay to prevent excessive CPU usage
                 # Reduced from 20ms to 5ms for faster reaction time
                 time.sleep(0.005)  # ~200 updates per second
-                
+
         except KeyboardInterrupt:
             print("\nStopping eye tracking...")
         finally:
@@ -423,7 +513,14 @@ class EyeController:
                 freenect.sync_stop()
             except Exception:
                 pass
+            # Release camera if used
+            try:
+                if self.camera is not None:
+                    self.camera.release()
+            except Exception:
+                pass
             print("Cleanup complete.")
+
 
 def pwm_to_duty_cycle(pwm_value):
     """
@@ -435,10 +532,11 @@ def pwm_to_duty_cycle(pwm_value):
     # This is a simple linear mapping, adjust as needed for your servos
     return int(pwm_value * 16)  # 4096 * 16 = 65536
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Basic eye tracking with Kinect')
     parser.add_argument('--debug', action='store_true', help='Enable debug output')
     args = parser.parse_args()
-    
+
     controller = EyeController(debug=args.debug)
     controller.run()

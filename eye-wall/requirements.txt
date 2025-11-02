@@ -4,3 +4,6 @@ adafruit-circuitpython-servokit
 lgpio
 numpy
 freenect
+watchdog
+ollama
+flask
