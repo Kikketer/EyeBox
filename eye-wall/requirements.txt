@@ -8,3 +8,4 @@ watchdog
 ollama
 flask
 opencv-python
+requests

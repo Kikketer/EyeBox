@@ -74,23 +74,18 @@ class PhotoEventHandler(FileSystemEventHandler):
 
     def on_created(self, event):
         if isinstance(event, FileCreatedEvent) and not event.is_directory:
+            print("Image was added!")
             if is_supported_image(event.src_path):
                 self.work_q.put(WorkItem(event.src_path))
-
-    def on_modified(self, event):
-        if isinstance(event, FileModifiedEvent) and not event.is_directory:
-            if is_supported_image(event.src_path):
-                # Handle cases where file is written via temp + move or progressive writes
-                self.work_q.put(WorkItem(event.src_path))
-
 
 def generate_comment_with_ollama(model: str, image_path: str, timeout: float = 120.0) -> str:
     if ollama is None:
         raise RuntimeError("The 'ollama' Python package is not installed. Install it with: pip install ollama")
 
+    print("Asking AI to generate a comment...")
     prompt = (
-        "Analyze this photo and briefly note notable visual features (e.g., hair color, face shape, clothing, scene).\n"
-        "Then craft ONE short, friendly, social-media-style comment for the photo.\n"
+        "Analyze this photo of a person's face and briefly note notable visual features (e.g., hair color, face shape, clothing, etc).\n"
+        "Then craft ONE short, friendly, complimentary, social-media-style comment for the photo.\n"
         "- Keep it under 30 words.\n"
         "- No hashtags.\n"
         "- No emojis.\n"
@@ -107,6 +102,7 @@ def generate_comment_with_ollama(model: str, image_path: str, timeout: float = 1
     )
     # Response structure typically: { 'model': ..., 'created_at': ..., 'response': 'text', ... }
     text = resp.get("response", "").strip()
+    print(f"Comment generated: {text}")
     return text
 
 
@@ -153,6 +149,7 @@ def worker(model: str, work_q: "queue.Queue[WorkItem]", stop_event: threading.Ev
             continue
         seen[path] = now
         if is_supported_image(path):
+            print("Processing image...")
             process_image(model, path)
         work_q.task_done()
 
@@ -160,7 +157,7 @@ def worker(model: str, work_q: "queue.Queue[WorkItem]", stop_event: threading.Ev
 def main():
     parser = argparse.ArgumentParser(description="Watch a folder for new images and generate comments via Ollama.")
     parser.add_argument("--dir", default=os.path.join(os.getcwd(), "photos"), help="Directory to watch (default: ./photos)")
-    parser.add_argument("--model", default="llava", help="Ollama vision model to use (e.g., llava, llama3.2-vision)")
+    parser.add_argument("--model", default="qwen3-vl:2b", help="Ollama vision model to use (e.g., qwen3-vl, llava, llama3.2-vision)")
     args = parser.parse_args()
 
     watch_dir = os.path.abspath(args.dir)
@@ -174,6 +171,25 @@ def main():
 
     print(f"[watcher] Watching: {watch_dir}")
     print(f"[watcher] Using model: {args.model}")
+
+    # Quick test: process first existing photo in directory
+    print("[watcher] Looking for existing photos to test...")
+    existing_photos = []
+    try:
+        for filename in os.listdir(watch_dir):
+            filepath = os.path.join(watch_dir, filename)
+            if os.path.isfile(filepath) and is_supported_image(filepath):
+                existing_photos.append(filepath)
+        
+        if existing_photos:
+            test_photo = existing_photos[0]
+            print(f"[watcher] Running test with: {os.path.basename(test_photo)}")
+            process_image(args.model, test_photo)
+            print("[watcher] Test complete!\n")
+        else:
+            print("[watcher] No existing photos found for testing.\n")
+    except Exception as e:
+        print(f"[watcher] Error during test: {e}\n")
 
     work_q: "queue.Queue[WorkItem]" = queue.Queue()
     handler = PhotoEventHandler(work_q)

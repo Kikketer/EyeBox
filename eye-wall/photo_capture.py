@@ -2,6 +2,7 @@
 """
 Standalone Photo Button Test Script
 Tests button press detection and photo capture independently from the eye tracking system.
+Uploads captured photos to server via HTTP POST.
 """
 
 import os
@@ -23,11 +24,18 @@ except ImportError:
     print("Error: opencv-python not found. Install with: pip install opencv-python")
     sys.exit(1)
 
+# HTTP requests for uploading
+try:
+    import requests
+except ImportError:
+    print("Error: requests not found. Install with: pip install requests")
+    sys.exit(1)
+
 # GPIO pin for photo capture button (BCM numbering)
 PHOTO_BUTTON_PIN = 27  # GPIO27, physical pin 13
 
 # Photo settings
-PHOTO_DIR = os.path.join(os.getcwd(), "photos")
+UPLOAD_URL = "http://192.168.8.207:8000/upload"
 DEBOUNCE_TIME = 1.0  # Seconds between photos to prevent multiple captures
 
 
@@ -35,25 +43,15 @@ class PhotoButtonTester:
     def __init__(self):
         self.gpio_handle = None
         self.camera1 = None
-        self.camera2 = None
+        # self.camera2 = None
         self.current_frame1 = None
-        self.current_frame2 = None
+        # self.current_frame2 = None
         self.last_photo_time = 0.0
         self.photo_count = 0
         
         # Setup
-        self.setup_photo_directory()
         self.setup_gpio()
         self.setup_cameras()
-    
-    def setup_photo_directory(self):
-        """Create photos directory if it doesn't exist"""
-        try:
-            os.makedirs(PHOTO_DIR, exist_ok=True)
-            print(f"✓ Photo directory ready: {PHOTO_DIR}")
-        except Exception as e:
-            print(f"✗ Error creating photo directory: {e}")
-            sys.exit(1)
     
     def setup_gpio(self):
         """Initialize GPIO for button reading"""
@@ -102,29 +100,29 @@ class PhotoButtonTester:
             print(f"✗ Error initializing camera 1: {e}")
             sys.exit(1)
         
-        # Initialize Camera 2
-        try:
-            self.camera2 = cv2.VideoCapture(1)
+        # # Initialize Camera 2
+        # try:
+        #     self.camera2 = cv2.VideoCapture(1)
             
-            if not self.camera2.isOpened():
-                print("✗ Error: Could not open camera 2 at /dev/video1")
-                sys.exit(1)
+        #     if not self.camera2.isOpened():
+        #         print("✗ Error: Could not open camera 2 at /dev/video1")
+        #         sys.exit(1)
             
-            # Set camera resolution
-            self.camera2.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-            self.camera2.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        #     # Set camera resolution
+        #     self.camera2.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        #     self.camera2.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
             
-            # Test frame capture
-            ret, frame = self.camera2.read()
-            if not ret or frame is None:
-                print("✗ Error: Camera 2 opened but cannot read frames")
-                sys.exit(1)
+        #     # Test frame capture
+        #     ret, frame = self.camera2.read()
+        #     if not ret or frame is None:
+        #         print("✗ Error: Camera 2 opened but cannot read frames")
+        #         sys.exit(1)
             
-            print(f"✓ Camera 2 initialized: {int(self.camera2.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.camera2.get(cv2.CAP_PROP_FRAME_HEIGHT))}")
+        #     print(f"✓ Camera 2 initialized: {int(self.camera2.get(cv2.CAP_PROP_FRAME_WIDTH))}x{int(self.camera2.get(cv2.CAP_PROP_FRAME_HEIGHT))}")
             
-        except Exception as e:
-            print(f"✗ Error initializing camera 2: {e}")
-            sys.exit(1)
+        # except Exception as e:
+        #     print(f"✗ Error initializing camera 2: {e}")
+        #     sys.exit(1)
     
     def is_button_pressed(self):
         """Check if photo button is pressed (active-low with pull-up)"""
@@ -139,44 +137,56 @@ class PhotoButtonTester:
             return False
     
     def take_photo(self):
-        """Capture and save photos from both cameras"""
+        """Capture and upload photos from both cameras"""
         success_count = 0
         
         # Generate timestamp for this capture session
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Save from Camera 1
+        # # Upload from Camera 1
         try:
             if self.current_frame1 is not None:
                 filename1 = f"eyebox_cam1_{timestamp}.jpg"
-                filepath1 = os.path.join(PHOTO_DIR, filename1)
-                cv2.imwrite(filepath1, self.current_frame1)
-                print(f"✓ Camera 1 saved: {filename1}")
-                success_count += 1
+                # Encode image to JPEG format
+                _, img_encoded = cv2.imencode('.jpg', self.current_frame1)
+                # Upload to server
+                files = {'photo': (filename1, img_encoded.tobytes(), 'image/jpeg')}
+                response = requests.post(UPLOAD_URL, files=files, timeout=5)
+                if response.status_code == 200:
+                    print(f"✓ Camera 1 uploaded: {filename1}")
+                    success_count += 1
+                else:
+                    print(f"✗ Camera 1 upload failed: HTTP {response.status_code}")
             else:
                 print("✗ No frame available from camera 1")
         except Exception as e:
-            print(f"✗ Error saving camera 1: {e}")
+            print(f"✗ Error uploading camera 1: {e}")
         
-        # Save from Camera 2
-        try:
-            if self.current_frame2 is not None:
-                filename2 = f"eyebox_cam2_{timestamp}.jpg"
-                filepath2 = os.path.join(PHOTO_DIR, filename2)
-                cv2.imwrite(filepath2, self.current_frame2)
-                print(f"✓ Camera 2 saved: {filename2}")
-                success_count += 1
-            else:
-                print("✗ No frame available from camera 2")
-        except Exception as e:
-            print(f"✗ Error saving camera 2: {e}")
+        # # Upload from Camera 2
+        # try:
+        #     if self.current_frame2 is not None:
+        #         filename2 = f"eyebox_cam2_{timestamp}.jpg"
+        #         # Encode image to JPEG format
+        #         _, img_encoded = cv2.imencode('.jpg', self.current_frame2)
+        #         # Upload to server
+        #         files = {'photo': (filename2, img_encoded.tobytes(), 'image/jpeg')}
+        #         response = requests.post(UPLOAD_URL, files=files, timeout=5)
+        #         if response.status_code == 200:
+        #             print(f"✓ Camera 2 uploaded: {filename2}")
+        #             success_count += 1
+        #         else:
+        #             print(f"✗ Camera 2 upload failed: HTTP {response.status_code}")
+        #     else:
+        #         print("✗ No frame available from camera 2")
+        # except Exception as e:
+        #     print(f"✗ Error uploading camera 2: {e}")
         
         if success_count > 0:
             self.photo_count += 1
             print(f"✓ Photo set #{self.photo_count} complete ({success_count}/2 cameras)")
             return True
         else:
-            print("✗ Failed to save any photos")
+            print("✗ Failed to upload any photos")
             return False
     
     def run(self):
@@ -199,9 +209,9 @@ class PhotoButtonTester:
                 if not ret1:
                     print("✗ Warning: Failed to read frame from camera 1")
                 
-                ret2, self.current_frame2 = self.camera2.read()
-                if not ret2:
-                    print("✗ Warning: Failed to read frame from camera 2")
+                # ret2, self.current_frame2 = self.camera2.read()
+                # if not ret2:
+                #     print("✗ Warning: Failed to read frame from camera 2")
                 
                 button_is_pressed = self.is_button_pressed()
                 
@@ -237,9 +247,9 @@ class PhotoButtonTester:
             self.camera1.release()
             print("✓ Camera 1 released")
         
-        if self.camera2 is not None:
-            self.camera2.release()
-            print("✓ Camera 2 released")
+        # if self.camera2 is not None:
+        #     self.camera2.release()
+        #     print("✓ Camera 2 released")
         
         # Close GPIO
         if self.gpio_handle is not None:
