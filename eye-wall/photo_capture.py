@@ -32,11 +32,12 @@ except ImportError:
     sys.exit(1)
 
 # GPIO pin for photo capture button (BCM numbering)
-PHOTO_BUTTON_PIN = 27  # GPIO27, physical pin 13
+GOOD_PHOTO_BUTTON_PIN = 27  # GPIO27, physical pin 13
+BAD_PHOTO_BUTTON_PIN = 22  # GPIO22, physical pin 15
 
 # Photo settings
-UPLOAD_URL = "http://192.168.8.207:8000/upload"
-DEBOUNCE_TIME = 1.0  # Seconds between photos to prevent multiple captures
+UPLOAD_URL = "http://192.168.8.226:8000/upload"
+DEBOUNCE_TIME = 3.0  # Seconds between photos to prevent multiple captures
 
 
 class PhotoButtonTester:
@@ -60,9 +61,11 @@ class PhotoButtonTester:
             self.gpio_handle = lgpio.gpiochip_open(0)
             
             # Set photo button as input with pull-up resistor
-            lgpio.gpio_claim_input(self.gpio_handle, PHOTO_BUTTON_PIN, lgpio.SET_PULL_UP)
+            lgpio.gpio_claim_input(self.gpio_handle, GOOD_PHOTO_BUTTON_PIN, lgpio.SET_PULL_UP)
+            lgpio.gpio_claim_input(self.gpio_handle, BAD_PHOTO_BUTTON_PIN, lgpio.SET_PULL_UP)
             
-            print(f"✓ GPIO initialized: Button on GPIO{PHOTO_BUTTON_PIN} (physical pin 13)")
+            print(f"✓ GPIO initialized: Button on GPIO{GOOD_PHOTO_BUTTON_PIN} (physical pin 13)")
+            print(f"✓ GPIO initialized: Button on GPIO{BAD_PHOTO_BUTTON_PIN} (physical pin 15)")
             return True
             
         except Exception as e:
@@ -124,19 +127,31 @@ class PhotoButtonTester:
         #     print(f"✗ Error initializing camera 2: {e}")
         #     sys.exit(1)
     
-    def is_button_pressed(self):
+    def is_good_button_pressed(self):
         """Check if photo button is pressed (active-low with pull-up)"""
         try:
             if self.gpio_handle is not None:
-                state = lgpio.gpio_read(self.gpio_handle, PHOTO_BUTTON_PIN)
+                good_state = lgpio.gpio_read(self.gpio_handle, GOOD_PHOTO_BUTTON_PIN)
                 # Button is pressed when pin reads LOW (0)
-                return state == 0
+                return good_state == 0
+            return False
+        except Exception as e:
+            print(f"Error reading button: {e}")
+            return False
+
+    def is_bad_button_pressed(self):
+        """Check if photo button is pressed (active-low with pull-up)"""
+        try:
+            if self.gpio_handle is not None:
+                bad_state = lgpio.gpio_read(self.gpio_handle, BAD_PHOTO_BUTTON_PIN)
+                # Button is pressed when pin reads LOW (0)
+                return bad_state == 0
             return False
         except Exception as e:
             print(f"Error reading button: {e}")
             return False
     
-    def take_photo(self):
+    def take_photo(self, button_type: str):
         """Capture and upload photos from both cameras"""
         success_count = 0
         
@@ -151,7 +166,11 @@ class PhotoButtonTester:
                 _, img_encoded = cv2.imencode('.jpg', self.current_frame1)
                 # Upload to server
                 files = {'photo': (filename1, img_encoded.tobytes(), 'image/jpeg')}
-                response = requests.post(UPLOAD_URL, files=files, timeout=5)
+                # If it's a good photo use ?type=complimentary if it's bad use ?type=insult
+                if button_type == 'good':
+                    response = requests.post(UPLOAD_URL + '?type=complimentary', files=files, timeout=5)
+                elif button_type == 'bad':
+                    response = requests.post(UPLOAD_URL + '?type=insult', files=files, timeout=5)
                 if response.status_code == 200:
                     print(f"✓ Camera 1 uploaded: {filename1}")
                     success_count += 1
@@ -198,7 +217,8 @@ class PhotoButtonTester:
         print("Press Ctrl+C to exit.\n")
         
         try:
-            button_was_pressed = False
+            good_button_was_pressed = False
+            bad_button_was_pressed = False
             
             while True:
                 current_time = time.time()
@@ -213,22 +233,29 @@ class PhotoButtonTester:
                 # if not ret2:
                 #     print("✗ Warning: Failed to read frame from camera 2")
                 
-                button_is_pressed = self.is_button_pressed()
+                good_button_is_pressed = self.is_good_button_pressed()
+                bad_button_is_pressed = self.is_bad_button_pressed()
                 
                 # Detect button press (edge detection)
-                if button_is_pressed and not button_was_pressed:
+                if (good_button_is_pressed or bad_button_is_pressed) and not (good_button_was_pressed or bad_button_was_pressed):
                     # Button just pressed
                     print("→ Button pressed detected!")
                     
                     # Check debounce
                     time_since_last = current_time - self.last_photo_time
                     if time_since_last > DEBOUNCE_TIME:
-                        self.take_photo()
+                        if good_button_is_pressed:
+                            print("✓ Good button pressed")
+                            self.take_photo('good')
+                        elif bad_button_is_pressed:
+                            print("✓ Bad button pressed")
+                            self.take_photo('bad')
                         self.last_photo_time = current_time
                     else:
                         print(f"  ⏳ Debounced (wait {DEBOUNCE_TIME - time_since_last:.1f}s)")
                 
-                button_was_pressed = button_is_pressed
+                good_button_was_pressed = good_button_is_pressed
+                bad_button_was_pressed = bad_button_is_pressed
                 
                 # Small delay to prevent excessive CPU usage
                 time.sleep(0.01)  # 100Hz polling
