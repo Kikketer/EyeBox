@@ -35,6 +35,10 @@ except ImportError:
 GOOD_PHOTO_BUTTON_PIN = 27  # GPIO27, physical pin 13
 BAD_PHOTO_BUTTON_PIN = 22  # GPIO22, physical pin 15
 
+# GPIO pins for LED outputs (BCM numbering)
+GOOD_LED_PIN = 18     # GPIO18, physical pin 12
+BAD_LED_PIN = 23      # GPIO23, physical pin 16
+
 # Photo settings
 UPLOAD_URL = "http://192.168.8.226:8000/upload"
 DEBOUNCE_TIME = 3.0  # Seconds between photos to prevent multiple captures
@@ -50,6 +54,12 @@ class PhotoButtonTester:
         self.last_photo_time = 0.0
         self.photo_count = 0
         
+        # LED control state
+        self.good_led_on = False
+        self.bad_led_on = False
+        self.led_off_time = 0.0
+        self.led_delay = 6.0  # 6 seconds
+        
         # Setup
         self.setup_gpio()
         self.setup_cameras()
@@ -64,8 +74,14 @@ class PhotoButtonTester:
             lgpio.gpio_claim_input(self.gpio_handle, GOOD_PHOTO_BUTTON_PIN, lgpio.SET_PULL_UP)
             lgpio.gpio_claim_input(self.gpio_handle, BAD_PHOTO_BUTTON_PIN, lgpio.SET_PULL_UP)
             
+            # Set LED pins as outputs
+            lgpio.gpio_claim_output(self.gpio_handle, GOOD_LED_PIN)
+            lgpio.gpio_claim_output(self.gpio_handle, BAD_LED_PIN)
+            
             print(f"✓ GPIO initialized: Button on GPIO{GOOD_PHOTO_BUTTON_PIN} (physical pin 13)")
             print(f"✓ GPIO initialized: Button on GPIO{BAD_PHOTO_BUTTON_PIN} (physical pin 15)")
+            print(f"✓ GPIO initialized: Good LED on GPIO{GOOD_LED_PIN} (physical pin 12)")
+            print(f"✓ GPIO initialized: Bad LED on GPIO{BAD_LED_PIN} (physical pin 16)")
             return True
             
         except Exception as e:
@@ -151,6 +167,40 @@ class PhotoButtonTester:
             print(f"Error reading button: {e}")
             return False
     
+    def set_led(self, led_pin, state, led_name):
+        """Turn LED on (True) or off (False)"""
+        try:
+            if self.gpio_handle is not None:
+                lgpio.gpio_write(self.gpio_handle, led_pin, 1 if state else 0)
+                if led_name == "good":
+                    self.good_led_on = state
+                elif led_name == "bad":
+                    self.bad_led_on = state
+                print(f"✓ {led_name.capitalize()} LED {'ON' if state else 'OFF'} (3.3V, ~2mA)")
+        except Exception as e:
+            print(f"Error setting {led_name} LED: {e}")
+    
+    def update_led_control(self, current_time):
+        """Handle LED control logic with 6-second delay"""
+        # Check if either button is pressed
+        good_button_pressed = self.is_good_button_pressed()
+        bad_button_pressed = self.is_bad_button_pressed()
+        
+        # If either button is pressed and LEDs are currently on, turn both off
+        if (good_button_pressed or bad_button_pressed) and (self.good_led_on or self.bad_led_on):
+            print("Button pressed - turning both LEDs OFF")
+            self.set_led(GOOD_LED_PIN, False, "good")
+            self.set_led(BAD_LED_PIN, False, "bad")
+            self.led_off_time = current_time
+        
+        # Check if 6 seconds have passed since LEDs were turned off
+        if (not self.good_led_on or not self.bad_led_on) and self.led_off_time > 0:
+            if current_time - self.led_off_time >= self.led_delay:
+                print("6 seconds elapsed - turning both LEDs back ON")
+                self.set_led(GOOD_LED_PIN, True, "good")
+                self.set_led(BAD_LED_PIN, True, "bad")
+                self.led_off_time = 0.0
+
     def take_photo(self, button_type: str):
         """Capture and upload photos from both cameras"""
         success_count = 0
@@ -216,6 +266,12 @@ class PhotoButtonTester:
         print("Press the button to capture photos.")
         print("Press Ctrl+C to exit.\n")
         
+        # Initialize LEDs to ON state
+        print("Initializing LEDs...")
+        self.set_led(GOOD_LED_PIN, True, "good")
+        self.set_led(BAD_LED_PIN, True, "bad")
+        print("LEDs ready - Both LEDs ON initially")
+        
         try:
             good_button_was_pressed = False
             bad_button_was_pressed = False
@@ -257,6 +313,9 @@ class PhotoButtonTester:
                 good_button_was_pressed = good_button_is_pressed
                 bad_button_was_pressed = bad_button_is_pressed
                 
+                # Handle LED control
+                self.update_led_control(current_time)
+                
                 # Small delay to prevent excessive CPU usage
                 time.sleep(0.01)  # 100Hz polling
                 
@@ -268,6 +327,15 @@ class PhotoButtonTester:
     def cleanup(self):
         """Clean up resources"""
         print("\nCleaning up...")
+        
+        # Turn off LEDs
+        if self.gpio_handle is not None:
+            try:
+                lgpio.gpio_write(self.gpio_handle, GOOD_LED_PIN, 0)
+                lgpio.gpio_write(self.gpio_handle, BAD_LED_PIN, 0)
+                print("✓ LEDs turned off")
+            except Exception:
+                pass
         
         # Release cameras
         if self.camera1 is not None:
